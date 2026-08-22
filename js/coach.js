@@ -143,7 +143,9 @@ ${faceList}
      SDK 없이 fetch만 쓴다. 정적 호스팅이라 번들러가 없고,
      엔드포인트 하나에 SDK를 끌어올 이유가 없다. */
   async function callOpenAI(payload, { apiKey, model, signal }) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    let res;
+    try {
+      res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       signal,
       headers: {
@@ -160,12 +162,27 @@ ${faceList}
           { role: 'user',   content: JSON.stringify(payload, null, 1) },
         ],
       }),
-    });
+      });
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      /* fetch() rejects with a bare TypeError for anything the browser
+         refused to send — CORS, an offline radio, a captive portal, a
+         corporate proxy. The raw message ("Failed to fetch") tells the
+         user nothing, and the wrong guess here costs an hour. */
+      throw new Error(
+        '브라우저가 요청을 보내지 못했습니다 (CORS·네트워크·차단). ' +
+        '키 문제가 아닙니다 — 키가 틀렸다면 401이 돌아옵니다.'
+      );
+    }
 
     if (!res.ok) {
       let detail = '';
       try { detail = (await res.json())?.error?.message || ''; } catch (_) {}
-      throw new Error(`OpenAI ${res.status}${detail ? ' — ' + detail : ''}`);
+      const hint = res.status === 401 ? ' (키가 틀렸거나 만료됨)'
+                 : res.status === 429 ? ' (크레딧 소진 또는 요청 한도)'
+                 : res.status === 404 ? ' (모델 이름을 확인하세요)'
+                 : '';
+      throw new Error(`OpenAI ${res.status}${hint}${detail ? ' — ' + detail : ''}`);
     }
 
     const data = await res.json();
