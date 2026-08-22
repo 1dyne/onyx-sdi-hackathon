@@ -1,0 +1,219 @@
+/* ── Reset ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-x: hidden;
+  transition: background 200ms, color 200ms;
+}
+
+/* ── App shell ─────────────────────────────────────────── */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+/* ── Header ────────────────────────────────────────────── */
+.app-header {
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--gap-md);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.app-logo {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.app-logo .accent { color: var(--color-accent-text); }
+
+.app-subtitle {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 1px;
+  line-height: 1;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+}
+
+/* ── Tab nav ───────────────────────────────────────────── */
+.tab-nav {
+  height: var(--nav-h);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--color-accent-text);
+  border-bottom-color: var(--color-accent);
+}
+
+/* ── Tab panels ────────────────────────────────────────── */
+.tab-panel {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--gap-md);
+  gap: var(--gap-md);
+}
+.tab-panel.active { display: flex; }
+
+/* ── Live tab layout ───────────────────────────────────── */
+.live-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap-sm);
+}
+
+.live-body {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: var(--gap-md);
+  align-items: start;
+}
+
+.live-gauges {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+  padding-top: var(--gap-xs);
+}
+
+.live-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--gap-sm);
+  margin-top: auto;
+}
+
+/* ── Training tab layout ───────────────────────────────── */
+.drill-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+
+/* ── Config tab layout ─────────────────────────────────── */
+.config-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+}
+
+.wizard-steps {
+  display: flex;
+  gap: var(--gap-xs);
+  margin-bottom: var(--gap-sm);
+}
+.wizard-step-dot {
+  width: 24px;
+  height: 3px;
+  background: var(--border-hi);
+  transition: background 200ms;
+}
+.wizard-step-dot.done  { background: var(--color-ok); }
+.wizard-step-dot.active { background: var(--color-alert-p); }
+
+/* ── Log tab layout ────────────────────────────────────── */
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+
+.log-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap-sm);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-hi); }
+
+/* ── Build stamp (header) ──────────────────────────────── */
+.app-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.app-subtitle { display: inline-block; margin-top: 0; }
+
+.app-version {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Dev mode is loud on purpose — it must never be left on by accident. */
+.app-version.dev {
+  color: var(--color-alert-n);
+  font-weight: 700;
+}
+
+/* ── Update banner ─────────────────────────────────────── */
+.update-banner {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--color-ok);
+  background: var(--color-ok);
+  color: #0b0b0a;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 8px var(--gap-md);
+  text-align: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.update-banner:active { filter: brightness(1.15); }

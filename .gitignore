@@ -1,0 +1,12 @@
+# 로컬 전용 레퍼런스 파일 (배포 불필요)
+references/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+
+.claude/

@@ -1,0 +1,125 @@
+/* ── Foot SVG wrapper ───────────────────────────────────── */
+.foot-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-xs);
+}
+
+.foot-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.foot-svg {
+  width: 180px;
+  height: auto;
+  overflow: visible;
+}
+.foot-svg.small { width: 80px; }
+.foot-svg.config-mode { width: 160px; cursor: pointer; }
+
+/* ── Foot body fill ─────────────────────────────────────── */
+.foot-body,
+.foot-toe {
+  fill: #141410;
+  stroke: #2a2820;
+  stroke-width: 1;
+  transition: fill 200ms;
+}
+
+/* ── Pressure point dot ─────────────────────────────────── */
+.pp-dot {
+  r: 9;
+  fill: #1a1a16;
+  stroke: #3a3830;
+  stroke-width: 1;
+  transition: fill 150ms, stroke 150ms, opacity 150ms;
+  cursor: default;
+}
+
+/* States driven by JS (data-state attribute) */
+.pp-dot[data-state="inactive"] {
+  fill: #0f0f0c;
+  stroke: #242420;
+  opacity: 0.4;
+}
+.pp-dot[data-state="ok"] {
+  fill: #101a0a;
+  stroke: #5a7040;
+}
+.pp-dot[data-state="alert-p"] {
+  fill: #160a0a;
+  stroke: #a04040;
+  animation: dot-pulse-p 600ms infinite;
+}
+.pp-dot[data-state="alert-n"] {
+  fill: #141008;
+  stroke: #9a8030;
+  animation: dot-pulse-n 600ms infinite;
+}
+
+/* Config mode: clickable/selectable */
+.foot-svg.config-mode .pp-dot {
+  cursor: pointer;
+  r: 11;
+  transition: none;  /* 클릭 즉시 반응 */
+}
+.foot-svg.config-mode .pp-dot[data-selected="true"] {
+  fill: #1a1008;
+  stroke: #9a8030;
+  stroke-width: 1.5;
+}
+.foot-svg.config-mode .pp-dot:hover {
+  stroke: var(--text-dim);
+  opacity: 1 !important;
+}
+
+/* ── Point label inside SVG ─────────────────────────────── */
+.pp-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  fill: var(--text-muted);
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  user-select: none;
+}
+.pp-dot[data-state="ok"]      ~ .pp-label,
+.pp-dot[data-state="alert-p"] ~ .pp-label,
+.pp-dot[data-state="alert-n"] ~ .pp-label { fill: var(--text-dim); }
+
+/* SVG text labels (sibling approach won't work; labels go in a separate <g>) */
+.pp-id-text {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  fill: #484840;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  user-select: none;
+  letter-spacing: 0.04em;
+}
+
+/* ── Pulse animations ───────────────────────────────────── */
+@keyframes dot-pulse-p {
+  0%, 100% { stroke-opacity: 1; }
+  50%       { stroke-opacity: 0.4; }
+}
+@keyframes dot-pulse-n {
+  0%, 100% { stroke-opacity: 1; }
+  50%       { stroke-opacity: 0.35; }
+}
+
+/* ── Selection count badge ──────────────────────────────── */
+.pp-select-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+.pp-select-count .num { font-family: var(--font-mono); color: var(--color-alert-p); }
+.pp-select-count .num.full { color: var(--color-ok); }

@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+
+/* ── Semantic color tokens ─────────────────────────────── */
+:root {
+  --font-ui:   'Rajdhani', sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+
+  /* Status colors — olive-green / amber / dark-red palette */
+  --color-ok:       #5a7040;
+  --color-alert-p:  #a04040;
+  --color-alert-n:  #9a8030;
+  --color-inactive: #1e1e1a;
+
+  /* Accent: active-tab indicator / crosshair highlight */
+  --color-accent:      #7a7060;
+  --color-accent-text: #b0aa90;
+
+  /* Drill type colors — desaturated / military */
+  --color-type-static: #4878a0;
+  --color-type-gait:   #9a7840;
+  --color-type-custom: #785098;
+
+  --gap-xs:  4px;
+  --gap-sm:  8px;
+  --gap-md:  16px;
+  --gap-lg:  24px;
+  --gap-xl:  40px;
+
+  --header-h: 48px;
+  --nav-h:    40px;
+  --radius:   0px;
+}
+
+/* ── Dark theme (default) ──────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --bg:         #080808;
+  --bg-card:    #0d0d0c;
+  --bg-input:   #0c0c0a;
+  --bg-hover:   #141412;
+  --text:       #c8c8c0;
+  --text-bright:#ddd8c0;
+  --text-dim:   #888078;
+  --text-muted: #484840;
+  --border:     #1e1e1c;
+  --border-hi:  #2a2a26;
+}
+
+/* ── Light theme ───────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:         #b8b2a0;
+  --bg-card:    #aca690;
+  --bg-input:   #c4beaa;
+  --bg-hover:   #b0aa9a;
+  --text:       #0d0d0c;
+  --text-bright:#08080a;
+  --text-dim:   #3c3830;
+  --text-muted: #6a6458;
+  --border:     #8a8470;
+  --border-hi:  #6a6455;
+
+  /* accent overrides: dark ink so it reads on the warm-tan bg */
+  --color-accent:      #2a2820;
+  --color-accent-text: #0d0d0c;   /* same as --text → 'SDI' matches title */
+
+  /* status colors: deepen them so they don't wash out on tan */
+  --color-ok:       #3a5828;
+  --color-alert-p:  #7a2828;
+  --color-alert-n:  #6a5818;
+}

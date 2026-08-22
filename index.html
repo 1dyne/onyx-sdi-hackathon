@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#080808" />
+  <title>Onyx SDI</title>
+
+  <!-- ── PWA ──────────────────────────────────────────────── -->
+  <!-- Relative href so the scope resolves under the GitHub Pages
+       sub-path (/Onyx_SDI/) instead of the domain root. -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+
+  <!-- iOS: no manifest support for standalone/display, needs its own tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Onyx SDI" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+
+  <link rel="stylesheet" href="css/tokens.css?v=2.0.1" />
+  <link rel="stylesheet" href="css/layout.css?v=2.0.1" />
+  <link rel="stylesheet" href="css/components.css?v=2.0.1" />
+  <link rel="stylesheet" href="css/silhouette.css?v=2.0.1" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="app-logo">
+      ONYX <span class="accent">SDI</span>
+      <span class="app-meta">
+        <span class="app-subtitle">Smart Drill Indicator</span>
+        <!-- Build stamp: visual proof that a reload picked up new code -->
+        <span class="app-version" id="app-version"></span>
+      </span>
+    </div>
+
+    <div class="header-right">
+      <!-- Compact per-foot connect chips. Full-width buttons with
+           explicit 왼발/오른발 labels live on the LIVE tab; these are
+           the always-visible status + quick toggle. -->
+      <button class="btn-foot" id="btn-bt-left" data-foot="left" title="왼발 연결">
+        <span class="foot-dot disconnected"></span><span class="foot-key">L</span>
+      </button>
+      <button class="btn-foot" id="btn-bt-right" data-foot="right" title="오른발 연결">
+        <span class="foot-dot disconnected"></span><span class="foot-key">R</span>
+      </button>
+
+      <button class="btn-icon" id="btn-theme" title="테마 전환">
+        <!-- Sun/Moon icon -->
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1"  x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22"  x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1"  y1="12" x2="3"  y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22"  y1="19.78" x2="5.64"  y2="18.36"/>
+          <line x1="18.36" y1="5.64"  x2="19.78" y2="4.22"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Tab navigation ─────────────────────────────────── -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="live">LIVE</button>
+    <button class="tab-btn" data-tab="training">TRAINING</button>
+    <button class="tab-btn" data-tab="config">CONFIG</button>
+    <button class="tab-btn" data-tab="log">LOG</button>
+  </nav>
+
+  <!-- ── Tab panels (JS populates these) ───────────────── -->
+  <div id="tab-live"     class="tab-panel active"></div>
+  <div id="tab-training" class="tab-panel"></div>
+  <div id="tab-config"   class="tab-panel"></div>
+  <div id="tab-log"      class="tab-panel"></div>
+
+</div><!-- /#app -->
+
+<!-- Scripts (load order = dependency order) -->
+<script src="js/version.js?v=2.0.1"></script>
+<script src="js/pwa.js?v=2.0.1"></script>
+<script src="js/constants.js?v=2.0.1"></script>
+<script src="js/store.js?v=2.0.1"></script>
+<script src="js/audio.js?v=2.0.1"></script>
+<script src="js/bluetooth.js?v=2.0.1"></script>
+<script src="js/alert.js?v=2.0.1"></script>
+<script src="js/session.js?v=2.0.1"></script>
+<script src="js/tabs/live.js?v=2.0.1"></script>
+<script src="js/tabs/training.js?v=2.0.1"></script>
+<script src="js/tabs/config.js?v=2.0.1"></script>
+<script src="js/tabs/log.js?v=2.0.1"></script>
+<script src="js/main.js?v=2.0.1"></script>
+</body>
+</html>
