@@ -35,6 +35,13 @@ function createBleLink(foot) {
   // characteristic, and that has to be visible on the phone.
   let rxSource              = null;
 
+  /* Notification-level counters, kept separately from rawLog.
+     rawLog only gains an entry once a whole newline-terminated line has
+     been assembled, so "notifications arrived but nothing was logged"
+     and "nothing arrived at all" look identical from the outside. They
+     have completely different causes, so they are counted apart. */
+  const rxStats = { notifications: 0, bytes: 0, lastChunk: '', firstAt: null, lastAt: null };
+
   // Rolling window of arrival times, used to report the real sample rate.
   const arrivals = [];
   // Ring buffer of received lines for the RAW monitor.
@@ -154,6 +161,17 @@ function createBleLink(foot) {
     if (link.status !== 'connected') setStatus('connected');
   }
 
+  /* Counts raw notifications without touching the verified receive
+     path. Registered alongside onRx, never removed. */
+  function onRxCount(event) {
+    const now = Date.now();
+    rxStats.notifications++;
+    rxStats.bytes += event.target.value?.byteLength ?? 0;
+    try { rxStats.lastChunk = new TextDecoder().decode(event.target.value); } catch (_) {}
+    if (rxStats.firstAt === null) rxStats.firstAt = now;
+    rxStats.lastAt = now;
+  }
+
   function clearFirstDataTimer() {
     if (firstDataTimer) { clearTimeout(firstDataTimer); firstDataTimer = null; }
   }
@@ -177,6 +195,7 @@ function createBleLink(foot) {
     try {
       rxChar.removeEventListener('characteristicvaluechanged', onRx);
       rxChar.removeEventListener('characteristicvaluechanged', onFirstRx);
+      rxChar.removeEventListener('characteristicvaluechanged', onRxCount);
     } catch (_) { /* characteristic already invalidated */ }
     rxChar   = null;
     rxSource = null;
@@ -279,7 +298,9 @@ function createBleLink(foot) {
     rxChar = char;
     rxChar.addEventListener('characteristicvaluechanged', onRx);
     rxChar.addEventListener('characteristicvaluechanged', onFirstRx);
+    rxChar.addEventListener('characteristicvaluechanged', onRxCount);
     buffer = '';
+    Object.assign(rxStats, { notifications: 0, bytes: 0, lastChunk: '', firstAt: null, lastAt: null });
   }
 
   /* Windows Chrome loses the GATT link on the first discovery call
@@ -463,6 +484,16 @@ function createBleLink(foot) {
   /* Which service/characteristic this link is subscribed to, or null.
      The RAW monitor shows it whenever no data has arrived. */
   link.rxInfo = () => (rxSource ? { ...rxSource } : null);
+
+  /* Everything between "a notification fired" and "a line was parsed".
+     bufferLen > 0 with dispatched === 0 means bytes are arriving but no
+     newline ever closed a line. */
+  link.rxStats = () => ({
+    ...rxStats,
+    bufferLen:     buffer.length,
+    bufferPreview: buffer.slice(-48),
+    dispatched:    rawLog.length,
+  });
 
   link.rawLog = () => rawLog.slice();
   link.clearRawLog = () => { rawLog.length = 0; };

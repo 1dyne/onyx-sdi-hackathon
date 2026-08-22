@@ -408,6 +408,19 @@ const configTab = (() => {
     ));
   }
 
+  const RAW_STATE_KO = {
+    connected:    '연결됨',
+    'no-data':    '데이터 없음',
+    connecting:   '연결 중',
+    reconnecting: '재연결 중',
+    scanning:     '검색 중',
+    duplicate:    '중복 기기',
+    error:        '오류',
+    unsupported:  'BLE 미지원',
+    disconnected: '미연결',
+    simulating:   'DEMO',
+  };
+
   function renderRawLog() {
     const host = document.getElementById('raw-monitor-body');
     if (!host) { stopRawMonitor(); return; }
@@ -420,12 +433,11 @@ const configTab = (() => {
 
       const hz    = link.sampleRate();
       const name  = link.deviceName ? ' · ' + link.deviceName : '';
-      // A live GATT link is not a live stream, so 'no-data' has to win
-      // over isConnected() here — otherwise a silent unit reads "연결됨".
-      const state = link.isSimulating()          ? 'DEMO'
-                  : link.status === 'no-data'    ? '데이터 없음'
-                  : link.isConnected()           ? '연결됨'
-                  : '미연결';
+      // Report the link's actual status rather than deriving a label
+      // from isConnected(). A GATT link that is up but reconnecting, or
+      // up but silent, both used to read "연결됨" — which is the single
+      // most misleading thing this panel can say while debugging.
+      const state = link.isSimulating() ? 'DEMO' : (RAW_STATE_KO[link.status] || link.status);
       headEl.textContent = `${FOOT_LABEL[foot]}  ${state}${name}  ·  ${hz.toFixed(1)} Hz`;
       headEl.className   = 'raw-head' + (link.isLive() ? ' live' : '');
 
@@ -449,6 +461,25 @@ const configTab = (() => {
         } else if (link.isConnected()) {
           note = '<div class="raw-range warn">구독된 특성 없음 — 연결은 됐지만 notify 구독이 성립하지 않았습니다.</div>';
         }
+
+        // The decisive fork: did any notification fire at all? rawLog
+        // only fills once a whole line is assembled, so without this
+        // "no notifications" and "notifications but no newline" are
+        // indistinguishable — and they need opposite fixes.
+        const st = link.rxStats?.();
+        if (st) {
+          if (st.notifications === 0) {
+            note += '<div class="raw-range warn">notify 0회 — 구독은 됐지만 유닛이 한 번도 보내지 않았습니다. ' +
+                    '펌웨어의 bleuart.write() 반환값을 확인하세요.</div>';
+          } else {
+            const secs = st.lastAt ? ((Date.now() - st.lastAt) / 1000).toFixed(1) : '?';
+            note += '<div class="raw-range warn">notify ' + st.notifications + '회 · ' + st.bytes +
+                    ' B 수신 · 마지막 ' + secs + '초 전<br>조립 대기 ' + st.bufferLen +
+                    ' B — 줄바꿈 문자(LF)가 오지 않아 한 줄도 완성되지 않았습니다.<br>' +
+                    '마지막 청크: "' + escapeHtml(st.bufferPreview || st.lastChunk) + '"</div>';
+          }
+        }
+
         listEl.innerHTML = note + '<div class="raw-line empty">수신 데이터 없음</div>';
         return;
       }
