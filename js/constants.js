@@ -27,6 +27,41 @@ const PP_DOT_R        = 9;   // LIVE — display only, never tapped
 const PP_DOT_R_CONFIG = 16;  // CONFIG — visible selectable dot
 const PP_HIT_R        = 21;  // CONFIG — invisible touch target
 
+/* ── Point → FSR channel ───────────────────────────────────
+   The units carry FOUR FSR channels; the silhouette offers SEVEN
+   candidate positions. A drill names the four positions the sensors
+   are actually mounted at, and those map to channels 1-4 in
+   anatomical order (P1 before P2 before … P7).
+
+   Before this existed the code indexed values[] as P{n} → values[n-1],
+   which silently read roll/pitch/yaw as pressure for any drill using
+   P5/P6/P7 — those channels do not exist on the hardware. For the
+   ordinary P1-P4 drill the mapping below is the identity, so nothing
+   about existing drills changes.
+
+   The cache matters: this is called per point, per sample, per foot,
+   which is 80 lookups a second with both units streaming. */
+const _channelCache = new WeakMap();
+
+function channelMap(points) {
+  if (!points) return null;
+  let m = _channelCache.get(points);
+  if (m) return m;
+  m = new Map();
+  points.map(p => p.id).sort().forEach((id, i) => m.set(id, i));
+  _channelCache.set(points, m);
+  return m;
+}
+
+/* Channel index for one point id, or -1 if the drill does not use it.
+   `points` is a drill's points array; pass null for the raw P1-P4
+   layout used by FREE CAPTURE. */
+function channelOf(points, pid) {
+  if (!points) return parseInt(pid.slice(1)) - 1;
+  const m = channelMap(points);
+  return m.has(pid) ? m.get(pid) : -1;
+}
+
 const DRILL_TYPES = {
   static: { label:'Static', color:'#5588cc' },
   gait:   { label:'Gait',   color:'#cc8844' },

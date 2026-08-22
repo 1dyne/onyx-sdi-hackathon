@@ -462,6 +462,69 @@ const logTab = (() => {
     }
 
     // Memo
+    /* ── 세션 기록 + AI 조교 리포트 ─────────────────────────
+       Both are optional and both are written after the session was
+       already saved, so old logs simply render without this block. */
+    if (s.record && (s.record.energy !== null || s.record.environment || s.record.note)) {
+      const recHeading = document.createElement('div');
+      recHeading.className = 'section-heading';
+      recHeading.textContent = '세션 기록';
+      panel.appendChild(recHeading);
+
+      const recRow = document.createElement('div');
+      recRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:var(--gap-sm);padding:var(--gap-sm) 0;font-size:12px;color:var(--text-dim);';
+
+      if (s.record.energy !== null && s.record.energy !== undefined) {
+        const e = document.createElement('span');
+        e.style.fontFamily = 'var(--font-mono)';
+        e.textContent = '에너지 ' + s.record.energy + '/10';
+        recRow.appendChild(e);
+      }
+      if (s.record.environment) {
+        const e = document.createElement('span');
+        e.textContent = s.record.environment === 'indoor' ? '실내' : '실외';
+        recRow.appendChild(e);
+      }
+      panel.appendChild(recRow);
+
+      if (s.record.note) {
+        const n = document.createElement('div');
+        n.style.cssText = 'font-size:13px;color:var(--text-dim);line-height:1.7;padding-bottom:var(--gap-sm);';
+        n.textContent = s.record.note;
+        panel.appendChild(n);
+      }
+    }
+
+    if (s.report && s.report.text) {
+      const card = document.createElement('div');
+      card.className = 'card card-sm coach-card';
+
+      const head = document.createElement('div');
+      head.className   = 'coach-head';
+      head.textContent = '▶ SDI REPORT';
+      card.appendChild(head);
+
+      const face = document.createElement('div');
+      face.className   = 'coach-face';
+      face.textContent = coach.renderFace(s.report.face);
+      face.title       = coach.FACES[s.report.face] || '';
+      card.appendChild(face);
+
+      const body = document.createElement('div');
+      body.className   = 'coach-text';
+      body.textContent = s.report.text;
+      card.appendChild(body);
+
+      const meta = document.createElement('div');
+      meta.className   = 'coach-meta';
+      meta.textContent = s.report.source === 'openai'
+        ? String(s.report.model)
+        : '로컬 리포트';
+      card.appendChild(meta);
+
+      panel.appendChild(card);
+    }
+
     const memoHeading = document.createElement('div');
     memoHeading.className = 'section-heading';
     memoHeading.textContent = '메모';

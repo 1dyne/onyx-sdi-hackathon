@@ -41,7 +41,7 @@ const alertEngine = (() => {
     const refPoints = points.filter(p => hasReference(p, foot));
     if (!refPoints.length) return null;
     const avg = refPoints.reduce((sum, p) => {
-      const idx = parseInt(p.id.slice(1)) - 1;
+      const idx = channelOf(points, p.id);
       const ref = getReference(p, foot);
       return sum + (currentValues[idx] / ref) * 100;
     }, 0) / refPoints.length;
@@ -54,7 +54,7 @@ const alertEngine = (() => {
   function check(drill, values, foot) {
     const alerts = [];
     for (const pt of drill.points) {
-      const idx = parseInt(pt.id.slice(1)) - 1;
+      const idx = channelOf(drill.points, pt.id);
       const val = values[idx];
       const thr = getEffectiveThr(pt, foot);
       if (pt.direction === 'positive' && val < thr) {
@@ -87,15 +87,21 @@ const alertEngine = (() => {
   /* ── Gait sequence checker factory ─────────────────────────────
      Stateful — call once per foot. Timing is wall-clock, so a foot
      streaming at a different rate is judged identically. */
-  function createGaitChecker() {
+  function createGaitChecker(points = null) {
     let phase           = 0;
     let phaseActiveTime = 0;
     const TIMEOUT       = 3000;
 
     return {
       check(values, now = Date.now()) {
+        /* A gait group counts only through channels this drill actually
+           reads. A position with no sensor on it can never be "active",
+           so it must not hold up the sequence. */
         const isGroupActive = (group) =>
-          group.some(pid => values[parseInt(pid.slice(1)) - 1] > GAIT_ACTIVE_THR);
+          group.some(pid => {
+            const i = channelOf(points, pid);
+            return i >= 0 && values[i] > GAIT_ACTIVE_THR;
+          });
 
         if (phase > 0 && (now - phaseActiveTime) > TIMEOUT) phase = 0;
 
@@ -128,8 +134,8 @@ const alertEngine = (() => {
   function totalPressure(drill, values) {
     if (!drill || !values) return 0;
     return drill.points.reduce((sum, pt) => {
-      const idx = parseInt(pt.id.slice(1)) - 1;
-      return sum + (values[idx] || 0);
+      const idx = channelOf(drill.points, pt.id);
+      return sum + (idx >= 0 ? (values[idx] || 0) : 0);
     }, 0);
   }
 

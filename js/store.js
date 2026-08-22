@@ -30,6 +30,15 @@ const store = (() => {
     // mirrored. Only affects the symmetry widget, never alerts.
     imuInvertRollLeft:   false,
     imuInvertRollRight:  false,
+
+    /* ── AI 조교 ─────────────────────────────────────────────
+       The key lives only in this browser's localStorage. It is never
+       committed and never leaves the device except in the request to
+       OpenAI itself. Empty key simply means the local rule-based
+       report is used instead — the feature degrades, it never blocks. */
+    coachEnabled:        true,
+    coachApiKey:         '',
+    coachModel:          'gpt-4o-mini',
   };
 
   /* Fill in any missing fields on a point object (migration-safe).

@@ -685,6 +685,93 @@ const configTab = (() => {
     bleCard.appendChild(uuidHint);
 
     wrap.appendChild(bleCard);
+
+    /* ── AI 조교 ─────────────────────────────────────────
+       The key is held only in this browser. It is never committed and
+       never sent anywhere except OpenAI itself. With no key the app
+       still produces a report, just a rule-based one, so the venue
+       wifi failing is never the difference between a report and a
+       blank screen. */
+    const aiCard = document.createElement('div');
+    aiCard.className = 'card card-sm';
+    aiCard.style.cssText = 'display:flex;flex-direction:column;gap:var(--gap-sm);';
+
+    const aiHdr = document.createElement('div');
+    aiHdr.className = 'form-label';
+    aiHdr.textContent = 'AI 조교';
+    aiCard.appendChild(aiHdr);
+
+    aiCard.appendChild(buildToggleRow(
+      '세션 종료 후 리포트',
+      cfg.coachEnabled !== false,
+      (checked) => store.saveSettings({ coachEnabled: checked }),
+    ));
+
+    const keyLbl = document.createElement('div');
+    keyLbl.className = 'form-label';
+    keyLbl.textContent = 'OpenAI API 키';
+    aiCard.appendChild(keyLbl);
+
+    const keyInput = document.createElement('input');
+    keyInput.className = 'form-input';
+    keyInput.type = 'password';
+    keyInput.autocomplete = 'off';
+    keyInput.spellcheck = false;
+    keyInput.style.cssText = 'font-family:var(--font-mono);font-size:11px;';
+    keyInput.placeholder = 'sk-…';
+    keyInput.value = cfg.coachApiKey || '';
+    keyInput.onchange = () => store.saveSettings({ coachApiKey: keyInput.value.trim() });
+    aiCard.appendChild(keyInput);
+
+    const keyRow = document.createElement('div');
+    keyRow.style.cssText = 'display:flex;gap:var(--gap-sm);align-items:center;';
+
+    const keyState = document.createElement('span');
+    keyState.style.cssText = 'font-size:10px;font-family:var(--font-mono);flex:1;';
+    function paintKeyState() {
+      const has = !!(store.getSettings().coachApiKey || '').trim();
+      keyState.textContent = has ? '키 등록됨 — AI 조교 사용' : '키 없음 — 로컬 리포트 사용';
+      keyState.style.color = has ? 'var(--color-ok)' : 'var(--text-muted)';
+    }
+    paintKeyState();
+    keyInput.addEventListener('change', paintKeyState);
+
+    const btnClearKey = document.createElement('button');
+    btnClearKey.className = 'btn btn-ghost';
+    btnClearKey.style.cssText = 'font-size:11px;padding:5px 10px;';
+    btnClearKey.textContent = '키 삭제';
+    btnClearKey.onclick = () => {
+      keyInput.value = '';
+      store.saveSettings({ coachApiKey: '' });
+      paintKeyState();
+    };
+
+    keyRow.appendChild(keyState);
+    keyRow.appendChild(btnClearKey);
+    aiCard.appendChild(keyRow);
+
+    const modelLbl = document.createElement('div');
+    modelLbl.className = 'form-label';
+    modelLbl.textContent = '모델';
+    aiCard.appendChild(modelLbl);
+
+    const modelInput = document.createElement('input');
+    modelInput.className = 'form-input';
+    modelInput.style.cssText = 'font-family:var(--font-mono);font-size:11px;';
+    modelInput.placeholder = 'gpt-4o-mini';
+    modelInput.value = cfg.coachModel || 'gpt-4o-mini';
+    modelInput.onchange = () => store.saveSettings({ coachModel: modelInput.value.trim() || 'gpt-4o-mini' });
+    aiCard.appendChild(modelInput);
+
+    const aiHint = document.createElement('div');
+    aiHint.style.cssText = 'font-size:10px;color:var(--text-muted);line-height:1.5;';
+    aiHint.textContent =
+      '키는 이 기기에만 저장되고 OpenAI 외 어디로도 전송되지 않습니다. 다만 브라우저에서 직접 호출하므로 ' +
+      '개발자도구 네트워크 탭에는 보입니다 — 공용 기기에서 쓰셨다면 데모 후 키를 폐기(rotate)하세요. ' +
+      '키가 없거나 호출이 실패하면 수치 기반 로컬 리포트로 자동 대체되므로 리포트가 비는 일은 없습니다.';
+    aiCard.appendChild(aiHint);
+
+    wrap.appendChild(aiCard);
     return wrap;
   }
 

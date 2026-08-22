@@ -43,6 +43,7 @@ const SHELL_ASSETS = [
   './js/bluetooth.js',
   './js/alert.js',
   './js/session.js',
+  './js/coach.js',
   './js/tabs/live.js',
   './js/tabs/training.js',
   './js/tabs/config.js',

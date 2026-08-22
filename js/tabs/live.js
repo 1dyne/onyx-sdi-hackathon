@@ -707,7 +707,10 @@ const liveTab = (() => {
     const btnEnd = document.createElement('button');
     btnEnd.className   = 'btn btn-primary';
     btnEnd.textContent = 'END SESSION';
-    btnEnd.onclick = () => { if (session.end()) renderIdle(); };
+    btnEnd.onclick = () => {
+      const log = session.end();
+      if (log) renderWrapUp(log);
+    };
 
     const btnMemo = document.createElement('button');
     btnMemo.className   = 'btn btn-ghost';
@@ -732,6 +735,209 @@ const liveTab = (() => {
     refreshFootBadges();
     updateComparison();
     updateConnectionDependentUI();
+  }
+
+  /* -- Render wrap-up: record form -> AI coach report ---------
+     The session is already saved by the time this renders, so every
+     control here edits a stored log rather than live state. Nothing on
+     this screen is required: a user who just wants to stop training can
+     walk away and the session is still intact. */
+  function renderWrapUp(log) {
+    mode = 'wrapup';
+    currentDrill = null;
+    panel.innerHTML = '';
+
+    let reportAbort = null;
+
+    const hdr = document.createElement('div');
+    hdr.className = 'session-header';
+    const titleEl = document.createElement('span');
+    titleEl.className   = 'session-title';
+    titleEl.textContent = '세션 종료';
+    const subEl = document.createElement('span');
+    subEl.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:var(--font-mono);letter-spacing:.08em;';
+    subEl.textContent = log.drillTitle + ' · ' + log.duration + 's · 정확도 ' + log.quality + '%';
+    hdr.appendChild(titleEl);
+    hdr.appendChild(subEl);
+    panel.appendChild(hdr);
+
+    /* -- record form -- */
+    const form = document.createElement('div');
+    form.className = 'card card-sm';
+    form.style.cssText = 'display:flex;flex-direction:column;gap:var(--gap-sm);margin-top:var(--gap-sm);';
+
+    const formHdr = document.createElement('div');
+    formHdr.className = 'form-label';
+    formHdr.textContent = '세션 기록 (선택)';
+    form.appendChild(formHdr);
+
+    const enLbl = document.createElement('div');
+    enLbl.style.cssText = 'font-size:11px;color:var(--text-dim);';
+    enLbl.textContent = '에너지 상태';
+    form.appendChild(enLbl);
+
+    let energy = null;
+    const enRow = document.createElement('div');
+    enRow.className = 'energy-row';
+    for (let i = 1; i <= 10; i++) {
+      const b = document.createElement('button');
+      b.className   = 'energy-dot';
+      b.textContent = i;
+      b.dataset.v   = i;
+      b.onclick = () => {
+        energy = (energy === i) ? null : i;          // tap again to clear
+        enRow.querySelectorAll('.energy-dot').forEach((el, idx) => {
+          el.classList.toggle('on', energy !== null && idx < energy);
+        });
+      };
+      enRow.appendChild(b);
+    }
+    form.appendChild(enRow);
+
+    const envLbl = document.createElement('div');
+    envLbl.style.cssText = 'font-size:11px;color:var(--text-dim);margin-top:2px;';
+    envLbl.textContent = '환경';
+    form.appendChild(envLbl);
+
+    let environment = null;
+    const envRow = document.createElement('div');
+    envRow.className = 'dir-toggle';
+    [['indoor', '실내'], ['outdoor', '실외']].forEach(pair => {
+      const b = document.createElement('button');
+      b.className   = 'dir-btn';
+      b.textContent = pair[1];
+      b.dataset.env = pair[0];
+      b.onclick = () => {
+        environment = (environment === pair[0]) ? null : pair[0];
+        envRow.querySelectorAll('.dir-btn').forEach(el => {
+          el.classList.toggle('active', environment === el.dataset.env);
+        });
+      };
+      envRow.appendChild(b);
+    });
+    form.appendChild(envRow);
+
+    const noteLbl = document.createElement('div');
+    noteLbl.style.cssText = 'font-size:11px;color:var(--text-dim);margin-top:2px;';
+    noteLbl.textContent = '특이사항';
+    form.appendChild(noteLbl);
+
+    const note = document.createElement('textarea');
+    note.className   = 'form-input';
+    note.rows        = 2;
+    note.placeholder = '발목 뻐근함, 새 신발, 바닥이 미끄러웠음 …';
+    note.style.cssText = 'resize:vertical;font-size:12px;';
+    if (log.memo) note.value = log.memo;      // carry over an in-session memo
+    form.appendChild(note);
+
+    panel.appendChild(form);
+
+    /* -- report area -- */
+    const reportCard = document.createElement('div');
+    reportCard.className = 'card card-sm coach-card';
+    reportCard.id = 'coach-card';
+    reportCard.style.display = 'none';
+    panel.appendChild(reportCard);
+
+    function paintReport(state, rep) {
+      reportCard.style.display = '';
+      reportCard.innerHTML = '';
+
+      const head = document.createElement('div');
+      head.className   = 'coach-head';
+      head.textContent = '▶ SDI REPORT';
+      reportCard.appendChild(head);
+
+      if (state === 'loading') {
+        const l = document.createElement('div');
+        l.className   = 'coach-loading';
+        l.textContent = '조교가 기록을 보는 중…';
+        reportCard.appendChild(l);
+        return;
+      }
+
+      const face = document.createElement('div');
+      face.className   = 'coach-face';
+      face.textContent = coach.renderFace(rep.face);
+      face.title       = coach.FACES[rep.face] || '';
+      reportCard.appendChild(face);
+
+      const body = document.createElement('div');
+      body.className   = 'coach-text';
+      body.textContent = rep.text;
+      reportCard.appendChild(body);
+
+      const meta = document.createElement('div');
+      meta.className = 'coach-meta';
+      meta.textContent = rep.source === 'openai'
+        ? String(rep.model)
+        : rep.reason === 'no-key'
+          ? '로컬 리포트 — CONFIG에서 API 키를 넣으면 AI 조교가 씁니다'
+          : '로컬 리포트 — ' + (rep.error || 'API 호출 실패');
+      reportCard.appendChild(meta);
+    }
+
+    /* -- actions -- */
+    const actions = document.createElement('div');
+    actions.className = 'live-actions';
+    actions.style.marginTop = 'var(--gap-sm)';
+
+    const btnReport = document.createElement('button');
+    btnReport.className   = 'btn btn-primary';
+    btnReport.textContent = '기록 저장 · 리포트 받기';
+
+    const btnSkip = document.createElement('button');
+    btnSkip.className   = 'btn btn-ghost';
+    btnSkip.textContent = '건너뛰기';
+
+    const btnLog = document.createElement('button');
+    btnLog.className   = 'btn btn-ghost';
+    btnLog.textContent = 'LOG 보기';
+    btnLog.onclick = () => { if (reportAbort) reportAbort.abort(); renderIdle(); app.switchTab('log'); };
+
+    function persist() {
+      log.record = {
+        energy,
+        environment,
+        note: note.value.trim() || null,
+      };
+      store.saveSession(log);
+    }
+
+    btnReport.onclick = async () => {
+      persist();
+      btnReport.disabled = true;
+      btnSkip.disabled   = true;
+      paintReport('loading');
+
+      reportAbort = new AbortController();
+      try {
+        const rep = await coach.report(log, { signal: reportAbort.signal });
+        log.report = rep;
+        store.saveSession(log);
+        // Saving already happened; only skip the repaint if the user left.
+        if (mode === 'wrapup') paintReport('done', rep);
+      } catch (err) {
+        if (err && err.name !== 'AbortError') {
+          app.showToast('리포트 생성 실패 — ' + (err.message || err));
+        }
+      } finally {
+        btnReport.disabled = false;
+        btnSkip.disabled   = false;
+        btnReport.textContent = '다시 받기';
+      }
+    };
+
+    btnSkip.onclick = () => {
+      persist();                    // an empty record is still a record
+      renderIdle();
+      app.switchTab('log');
+    };
+
+    actions.appendChild(btnReport);
+    actions.appendChild(btnSkip);
+    actions.appendChild(btnLog);
+    panel.appendChild(actions);
   }
 
   /* ── Render free-capture state ──────────────────────────── */
@@ -957,8 +1163,10 @@ const liveTab = (() => {
       const line = row.querySelector(`.gauge-line[data-foot="${foot}"]`);
       if (!line) return;
 
-      const idx   = parseInt(pid.slice(1)) - 1;
-      const val   = values[idx] ?? 0;
+      // FREE CAPTURE has no drill and shows the raw P1-P4 channels,
+      // which is exactly what channelOf(null, …) returns.
+      const idx   = channelOf(currentDrill ? currentDrill.points : null, pid);
+      const val   = idx >= 0 ? (values[idx] ?? 0) : 0;
       const pct   = Math.round((val / MAX_SENSOR_VAL) * 100);
       const aType = alertMap.get(pid);
 
@@ -1153,7 +1361,7 @@ const liveTab = (() => {
       if (!bluetooth.foot(foot).isLive() || !session.hasFoot(foot)) return;
       const values = session.currentValues(foot);
       drill.points.forEach(pt => {
-        const idx = parseInt(pt.id.slice(1)) - 1;
+        const idx = channelOf(drill.points, pt.id);
         if (!pt.reference || typeof pt.reference === 'number') {
           pt.reference = { left: null, right: null };
         }
@@ -1206,9 +1414,11 @@ const liveTab = (() => {
       app.showToast(`${FOOT_LABEL_KO[foot]} 합류 — 지금부터 집계됩니다`);
     };
 
-    session.onEnd = () => {
-      renderIdle();
-      setTimeout(() => app.switchTab('log'), 400);
+    // end() is reachable from places other than the END button, so the
+    // wrap-up screen is driven from the callback too rather than only
+    // from the click handler.
+    session.onEnd = (log) => {
+      if (log && mode !== 'wrapup') renderWrapUp(log);
     };
   }
 

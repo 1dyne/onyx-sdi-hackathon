@@ -1073,3 +1073,76 @@ input[type=range] {
   color: var(--text-muted);
   width: 24px;
 }
+
+/* ── 세션 기록 폼 (wrap-up) ─────────────────────────────── */
+.energy-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+}
+.energy-dot {
+  aspect-ratio: 1;
+  min-height: 30px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-hi);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  padding: 0;
+}
+.energy-dot.on {
+  background: var(--color-ok);
+  border-color: var(--color-ok);
+  color: var(--bg-base);
+  font-weight: 700;
+}
+
+/* ── AI 조교 리포트 ─────────────────────────────────────── */
+.coach-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+  border-color: var(--color-ok);
+}
+.coach-head {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--color-ok);
+  border-bottom: 1px solid var(--border-hi);
+  padding-bottom: 6px;
+}
+.coach-face {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  line-height: 1.2;
+  color: var(--text-bright);
+  text-align: center;
+  padding: 2px 0;
+  /* The faces are dense Unicode; let them breathe and never wrap. */
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.coach-text {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-bright);
+  white-space: pre-wrap;
+}
+.coach-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.coach-loading {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: var(--gap-sm) 0;
+}
+
+/* LOG 상세에 다시 표시될 때는 카드 테두리를 죽인다 */
+.log-detail .coach-card { border-color: var(--border-hi); }

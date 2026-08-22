@@ -26,7 +26,14 @@ const session = (() => {
       currentValues: [0, 0, 0, 0, 0, 0, 0],
       activeAlerts:  [],
       alertTimeline: [],         // { time, pointId, type, foot }
-      pointStats:    {},         // pid → { sum, count, alertCount }
+      pointStats:    {},         // pid → { sum, max, count, alertCount }
+      // Roll is accumulated against the foot's own first reading, the
+      // same way yaw is: the IMU sits at whatever angle the strap put
+      // it at, so only the deviation from that baseline is meaningful.
+      rollRef:       null,
+      rollDevSum:    0,
+      rollDevMax:    0,
+      rollSamples:   0,
       gaitChecker:   null,
       yawRef:        null,       // per-foot calibration (gyro drifts)
       yawCalibratedAt: null,     // ms timestamp, for the drift hint
@@ -99,9 +106,9 @@ const session = (() => {
       const fs = createFootState();
       if (drill) {
         for (const pt of drill.points) {
-          fs.pointStats[pt.id] = { sum: 0, count: 0, alertCount: 0 };
+          fs.pointStats[pt.id] = { sum: 0, max: 0, count: 0, alertCount: 0 };
         }
-        fs.gaitChecker = drill.type === 'gait' ? alertEngine.createGaitChecker() : null;
+        fs.gaitChecker = drill.type === 'gait' ? alertEngine.createGaitChecker(drill.points) : null;
       }
       state.feet[f] = fs;
     }
@@ -298,11 +305,25 @@ const session = (() => {
         }
       }
 
-      // Per-point stats
+      // Per-point stats. Max matters as much as the mean here: a channel
+      // can average fine and still spike past the threshold.
       for (const pt of state.drill.points) {
-        const idx  = parseInt(pt.id.slice(1)) - 1;
+        const idx  = channelOf(state.drill.points, pt.id);
         const stat = fs.pointStats[pt.id];
-        if (stat) { stat.sum += values[idx]; stat.count++; }
+        if (stat) {
+          stat.sum += values[idx];
+          if (values[idx] > stat.max) stat.max = values[idx];
+          stat.count++;
+        }
+      }
+
+      // Roll deviation from this foot's own baseline.
+      if (fs.hasImu) {
+        if (fs.rollRef === null) fs.rollRef = roll;
+        const dev = Math.abs(roll - fs.rollRef);
+        fs.rollDevSum += dev;
+        if (dev > fs.rollDevMax) fs.rollDevMax = dev;
+        fs.rollSamples++;
       }
 
       if (!alerts.length) {
@@ -357,6 +378,7 @@ const session = (() => {
         for (const [pid, s] of Object.entries(fs.pointStats)) {
           pointStats[pid] = {
             avg:        s.count ? Math.round(s.sum / s.count) : 0,
+            max:        s.max,
             alertCount: s.alertCount,
           };
         }
@@ -368,13 +390,19 @@ const session = (() => {
           hasImu:       fs.hasImu,
           pointStats,
           alertTimeline: fs.alertTimeline,
+          roll: fs.rollSamples
+            ? { avgDev: Math.round(fs.rollDevSum / fs.rollSamples * 10) / 10,
+                maxDev: Math.round(fs.rollDevMax * 10) / 10,
+                ref:    Math.round(fs.rollRef * 10) / 10 }
+            : null,
         };
         mergedTimeline.push(...fs.alertTimeline);
 
         // Legacy mirror: average the per-point figures across feet.
         for (const [pid, ps] of Object.entries(pointStats)) {
-          if (!mergedPointStats[pid]) mergedPointStats[pid] = { avg: 0, alertCount: 0, _n: 0 };
+          if (!mergedPointStats[pid]) mergedPointStats[pid] = { avg: 0, max: 0, alertCount: 0, _n: 0 };
           mergedPointStats[pid].avg        += ps.avg;
+          mergedPointStats[pid].max         = Math.max(mergedPointStats[pid].max, ps.max);
           mergedPointStats[pid].alertCount += ps.alertCount;
           mergedPointStats[pid]._n++;
         }
@@ -387,7 +415,7 @@ const session = (() => {
       mergedTimeline.sort((a, b) => a.time - b.time);
 
       const log = {
-        schema:        2,
+        schema:        3,
         sessionId:     state.sessionId,
         drillId:       state.drill.id,
         drillTitle:    state.drill.title,
@@ -405,6 +433,11 @@ const session = (() => {
         // v2 per-foot breakdown
         feet,
         byFoot,
+
+        // v3: optional post-session record + AI coach report, both
+        // filled in after end() returns (the form is shown then).
+        record: null,   // { energy, environment, note }
+        report: null,   // { face, text, model, at, source }
       };
 
       store.saveSession(log);
