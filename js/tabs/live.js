@@ -809,8 +809,10 @@ const liveTab = (() => {
       b.dataset.env = pair[0];
       b.onclick = () => {
         environment = (environment === pair[0]) ? null : pair[0];
+        // The app's selected-state class for .dir-btn is
+        // selected-positive, not .active — .active has no rule at all.
         envRow.querySelectorAll('.dir-btn').forEach(el => {
-          el.classList.toggle('active', environment === el.dataset.env);
+          el.classList.toggle('selected-positive', environment === el.dataset.env);
         });
       };
       envRow.appendChild(b);
