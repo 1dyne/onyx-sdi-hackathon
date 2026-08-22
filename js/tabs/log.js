@@ -1,7 +1,8 @@
 const logTab = (() => {
   let panel     = null;
-  let viewMode  = 'list';   // 'list' | 'detail'
+  let viewMode  = 'list';   // 'list' | 'detail' | 'coach'
   let detailId  = null;
+  let cameFromCoach = false;   // detail was opened from the coach feed
 
   function fmt2(n) { return String(n).padStart(2, '0'); }
   function fmtDuration(s) {
@@ -127,8 +128,242 @@ const logTab = (() => {
   }
 
   /* ── Session list ───────────────────────────────────────── */
+  /* ══════════════════════════════════════════════════════════
+     조교 기록 — 리포트를 시간순으로 모아 보고, 그 옆에 그날의
+     컨디션을 나란히 둔다. 리포트 한 건만 보면 "오늘 정확도 61%"가
+     좋은 건지 나쁜 건지 알 수 없다. 에너지 3인 날의 61%와 에너지 9인
+     날의 61%는 다른 이야기이고, 그 대비는 모아 놓아야만 보인다.
+  ══════════════════════════════════════════════════════════ */
+
+  function buildViewTabs(active) {
+    const row = document.createElement('div');
+    row.className = 'dir-toggle log-viewtabs';
+
+    const mk = (label, mode) => {
+      const b = document.createElement('button');
+      b.className = 'dir-btn' + (active === mode ? ' selected-positive' : '');
+      b.textContent = label;
+      b.onclick = () => {
+        if (active === mode) return;
+        viewMode = mode;
+        if (mode === 'coach') renderCoachLog(); else renderList();
+      };
+      return b;
+    };
+
+    row.appendChild(mk('세션', 'list'));
+    row.appendChild(mk('조교 기록', 'coach'));
+    return row;
+  }
+
+  /* 에너지와 정확도를 한 축에 겹쳐 그린다. 에너지는 1-10이라 10을
+     곱해 정확도(%)와 같은 0-100 축에 올린다 — 절대값을 비교하려는
+     게 아니라 두 곡선이 같이 움직이는지를 보려는 것이다. */
+  function buildTrend(sessions) {
+    const pts = sessions.slice(-14);
+    if (pts.length < 2) return null;
+
+    const STEP = 26, PAD = 10, H = 78, TOP = 8;
+    const W = PAD * 2 + STEP * (pts.length - 1);
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('class', 'coach-trend');
+    svg.setAttribute('preserveAspectRatio', 'none');
+
+    const y = v => TOP + (H - TOP - 14) * (1 - Math.max(0, Math.min(100, v)) / 100);
+    const x = i => PAD + STEP * i;
+
+    // baseline
+    const base = document.createElementNS(ns, 'line');
+    base.setAttribute('x1', 0); base.setAttribute('x2', W);
+    base.setAttribute('y1', H - 13); base.setAttribute('y2', H - 13);
+    base.setAttribute('class', 'trend-base');
+    svg.appendChild(base);
+
+    // quality bars
+    pts.forEach((s, i) => {
+      const q = s.quality ?? 0;
+      const bar = document.createElementNS(ns, 'rect');
+      bar.setAttribute('x', x(i) - 4);
+      bar.setAttribute('y', y(q));
+      bar.setAttribute('width', 8);
+      bar.setAttribute('height', Math.max(1, (H - 13) - y(q)));
+      bar.setAttribute('class', 'trend-bar ' + qualityClass(q));
+      const t = document.createElementNS(ns, 'title');
+      t.textContent = `${s.date} · 정확도 ${q}%`;
+      bar.appendChild(t);
+      svg.appendChild(bar);
+    });
+
+    // energy line + dots, only across sessions that recorded one
+    const withEnergy = pts.map((s, i) => ({ i, e: s.record?.energy }))
+                          .filter(o => typeof o.e === 'number');
+    if (withEnergy.length >= 2) {
+      const d = withEnergy.map((o, k) => `${k ? 'L' : 'M'}${x(o.i)},${y(o.e * 10)}`).join(' ');
+      const path = document.createElementNS(ns, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('class', 'trend-energy');
+      svg.appendChild(path);
+    }
+    withEnergy.forEach(o => {
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('cx', x(o.i));
+      c.setAttribute('cy', y(o.e * 10));
+      c.setAttribute('r', 2.6);
+      c.setAttribute('class', 'trend-dot');
+      const t = document.createElementNS(ns, 'title');
+      t.textContent = `에너지 ${o.e}/10`;
+      c.appendChild(t);
+      svg.appendChild(c);
+    });
+
+    return svg;
+  }
+
+  function envLabel(env) {
+    return env === 'indoor' ? '실내' : env === 'outdoor' ? '실외' : null;
+  }
+
+  function chip(text, cls) {
+    const el = document.createElement('span');
+    el.className = 'coach-chip' + (cls ? ' ' + cls : '');
+    el.textContent = text;
+    return el;
+  }
+
+  function renderCoachLog() {
+    panel.innerHTML = '';
+    panel.appendChild(buildViewTabs('coach'));
+
+    const all = store.getSessions();
+    // 리포트가 있는 세션만 피드에 올린다. 추이는 리포트 유무와
+    // 무관하게 전체 세션으로 그린다 — 건너뛴 날도 흐름의 일부다.
+    const withReport = all.filter(s => s.report && s.report.text).reverse();
+
+    const heading = document.createElement('div');
+    heading.className = 'section-heading';
+    heading.textContent = '컨디션 · 정확도 추이';
+    panel.appendChild(heading);
+
+    const trend = buildTrend(all);
+    if (trend) {
+      const box = document.createElement('div');
+      box.className = 'coach-trend-box';
+      box.appendChild(trend);
+      panel.appendChild(box);
+
+      const legend = document.createElement('div');
+      legend.className = 'coach-legend';
+      legend.innerHTML =
+        '<span class="lg-bar"></span> 정확도 &nbsp;&nbsp;' +
+        '<span class="lg-dot"></span> 에너지 (10배 환산)';
+      panel.appendChild(legend);
+    } else {
+      const note = document.createElement('div');
+      note.className = 'empty-state';
+      note.style.padding = 'var(--gap-md)';
+      note.textContent = '세션이 2건 이상 쌓이면 추이가 표시됩니다.';
+      panel.appendChild(note);
+    }
+
+    // 요약
+    const energies = all.map(s => s.record?.energy).filter(e => typeof e === 'number');
+    const avgE = energies.length
+      ? Math.round(energies.reduce((a, b) => a + b, 0) / energies.length * 10) / 10 : null;
+    const qs = all.map(s => s.quality ?? 0);
+    const avgQ = qs.length ? Math.round(qs.reduce((a, b) => a + b, 0) / qs.length) : null;
+
+    const summary = document.createElement('div');
+    summary.className = 'coach-summary';
+    summary.textContent =
+      `리포트 ${withReport.length}건` +
+      (avgE !== null ? `  ·  평균 에너지 ${avgE}/10` : '') +
+      (avgQ !== null ? `  ·  평균 정확도 ${avgQ}%` : '');
+    panel.appendChild(summary);
+
+    const h2 = document.createElement('div');
+    h2.className = 'section-heading';
+    h2.textContent = '조교 피드백';
+    panel.appendChild(h2);
+
+    if (!withReport.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = '아직 받은 리포트가 없습니다.<br>' +
+        '<span style="font-size:11px;opacity:.6">세션 종료 후 &quot;리포트 받기&quot;를 누르면 여기에 쌓입니다.</span>';
+      panel.appendChild(empty);
+      return;
+    }
+
+    const feed = document.createElement('div');
+    feed.className = 'coach-feed';
+
+    withReport.forEach(s => {
+      const card = document.createElement('div');
+      card.className = 'card card-sm coach-entry';
+      card.onclick = () => { cameFromCoach = true; detailId = s.sessionId; viewMode = 'detail'; renderDetail(s); };
+
+      const head = document.createElement('div');
+      head.className = 'coach-entry-head';
+
+      const when = document.createElement('span');
+      when.className = 'coach-entry-date';
+      when.textContent = s.date;
+      head.appendChild(when);
+
+      const title = document.createElement('span');
+      title.className = 'coach-entry-title';
+      title.textContent = s.drillTitle;
+      head.appendChild(title);
+
+      const q = document.createElement('span');
+      q.className = 'coach-entry-q ' + qualityClass(s.quality ?? 0);
+      q.textContent = (s.quality ?? 0) + '%';
+      head.appendChild(q);
+
+      card.appendChild(head);
+
+      const chips = document.createElement('div');
+      chips.className = 'coach-chips';
+      if (typeof s.record?.energy === 'number') chips.appendChild(chip('에너지 ' + s.record.energy + '/10'));
+      const env = envLabel(s.record?.environment);
+      if (env) chips.appendChild(chip(env));
+      if (s.report.source !== 'openai') chips.appendChild(chip('로컬', 'dim'));
+      if (chips.children.length) card.appendChild(chips);
+
+      const row = document.createElement('div');
+      row.className = 'coach-entry-body';
+
+      const face = document.createElement('span');
+      face.className = 'coach-face sm';
+      face.textContent = coach.renderFace(s.report.face);
+      face.title = coach.FACES[s.report.face] || '';
+      row.appendChild(face);
+
+      const text = document.createElement('span');
+      text.className = 'coach-text';
+      text.textContent = s.report.text;
+      row.appendChild(text);
+
+      card.appendChild(row);
+
+      if (s.record?.note) {
+        const n = document.createElement('div');
+        n.className = 'coach-entry-note';
+        n.textContent = '특이사항 — ' + s.record.note;
+        card.appendChild(n);
+      }
+
+      feed.appendChild(card);
+    });
+
+    panel.appendChild(feed);
+  }
+
   function renderList() {
     panel.innerHTML = '';
+    panel.appendChild(buildViewTabs('list'));
 
     const heading = document.createElement('div');
     heading.className = 'section-heading';
@@ -193,6 +428,7 @@ const logTab = (() => {
 
       row.onclick = () => {
         detailId = s.sessionId;
+        cameFromCoach = false;
         viewMode = 'detail';
         renderDetail(s);
       };
@@ -222,7 +458,12 @@ const logTab = (() => {
     const back = document.createElement('div');
     back.className = 'detail-back';
     back.innerHTML = '‹ 목록으로';
-    back.onclick = () => { viewMode = 'list'; renderList(); };
+    // Return to whichever list the user came from.
+    const cameFrom = viewMode === 'detail' && cameFromCoach ? 'coach' : 'list';
+    back.onclick = () => {
+      viewMode = cameFrom;
+      if (cameFrom === 'coach') renderCoachLog(); else renderList();
+    };
     panel.appendChild(back);
 
     // Header

@@ -1146,3 +1146,129 @@ input[type=range] {
 
 /* LOG 상세에 다시 표시될 때는 카드 테두리를 죽인다 */
 .log-detail .coach-card { border-color: var(--border-hi); }
+
+/* ── LOG: 조교 기록 뷰 ───────────────────────────────────── */
+.log-viewtabs { margin-bottom: var(--gap-md); }
+
+.coach-trend-box {
+  padding: var(--gap-sm) 0;
+  overflow-x: auto;
+}
+.coach-trend {
+  width: 100%;
+  min-width: 240px;
+  height: 78px;
+  display: block;
+}
+.trend-base   { stroke: var(--border-hi); stroke-width: 1; }
+.trend-bar    { fill: var(--text-muted); }
+.trend-bar.ok     { fill: var(--color-ok); }
+.trend-bar.warn   { fill: var(--color-alert-n); }
+.trend-bar.danger { fill: var(--color-alert-p); }
+.trend-energy {
+  fill: none;
+  stroke: var(--text-bright);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+}
+.trend-dot { fill: var(--text-bright); }
+
+.coach-legend {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: var(--gap-sm);
+}
+.coach-legend .lg-bar {
+  display: inline-block; width: 7px; height: 10px;
+  background: var(--color-ok); vertical-align: middle;
+}
+.coach-legend .lg-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-bright); vertical-align: middle;
+}
+
+.coach-summary {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  padding-bottom: var(--gap-sm);
+}
+
+.coach-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+.coach-entry { cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.coach-entry:hover { border-color: var(--border-hi); }
+
+.coach-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-sm);
+}
+.coach-entry-date {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.coach-entry-title {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coach-entry-q {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.coach-entry-q.ok     { color: var(--color-ok); }
+.coach-entry-q.warn   { color: var(--color-alert-n); }
+.coach-entry-q.danger { color: var(--color-alert-p); }
+
+.coach-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.coach-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  padding: 1px 6px;
+}
+.coach-chip.dim { color: var(--text-muted); border-color: var(--border); }
+
+/* The face sits inline with the text in the feed rather than centred
+   above it, so a long list scans as a column of sentences. */
+.coach-entry-body {
+  display: flex;
+  gap: var(--gap-sm);
+  align-items: flex-start;
+}
+.coach-face.sm {
+  font-size: 13px;
+  text-align: left;
+  padding: 0;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+.coach-entry-body .coach-text { font-size: 12px; line-height: 1.65; }
+
+.coach-entry-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  border-top: 1px solid var(--border);
+  padding-top: 5px;
+}
