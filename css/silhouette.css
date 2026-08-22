@@ -20,7 +20,20 @@
   overflow: visible;
 }
 .foot-svg.small { width: 80px; }
-.foot-svg.config-mode { width: 160px; cursor: pointer; }
+.foot-svg.config-mode { width: 100%; max-width: 190px; cursor: pointer; }
+
+/* Both feet side by side in the CONFIG point picker. Two columns even
+   on the narrowest phone — seeing left and right together is the whole
+   point, and the dots stay tappable via .pp-hit. */
+.foot-pick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap-sm);
+  align-items: start;
+  justify-items: center;
+  margin: var(--gap-sm) auto;
+  max-width: 420px;
+}
 
 /* ── Foot body fill ─────────────────────────────────────── */
 .foot-body,
@@ -62,11 +75,24 @@
   animation: dot-pulse-n 600ms infinite;
 }
 
-/* Config mode: clickable/selectable */
+/* Config mode: clickable/selectable.
+   r mirrors PP_DOT_R_CONFIG / PP_HIT_R in constants.js — the CSS
+   geometry property overrides the presentation attribute, so these
+   are the values that actually render. */
 .foot-svg.config-mode .pp-dot {
   cursor: pointer;
-  r: 11;
+  r: 16;
+  stroke-width: 1.5;
   transition: none;  /* 클릭 즉시 반응 */
+}
+
+/* Invisible touch target layered over each dot. */
+.pp-hit {
+  r: 21;
+  fill: transparent;
+  stroke: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .foot-svg.config-mode .pp-dot[data-selected="true"] {
   fill: #1a1008;

@@ -804,56 +804,77 @@ const configTab = (() => {
 
     const hint = document.createElement('div');
     hint.style.cssText = 'font-size:12px;color:var(--text-dim);';
-    hint.textContent = '발 실루엣에서 활성화할 압점을 정확히 4개 선택하세요.';
+    hint.textContent = '양발 실루엣에서 활성화할 압점을 정확히 4개 선택하세요.';
     panel.appendChild(hint);
 
-    const footWrap = document.createElement('div');
-    footWrap.className = 'foot-wrap';
-    footWrap.style.margin = 'var(--gap-sm) auto';
+    const hint2 = document.createElement('div');
+    hint2.style.cssText = 'font-size:10px;color:var(--text-muted);line-height:1.5;margin-top:2px;';
+    hint2.textContent =
+      '양발 같은 자리에 FSR을 붙였다고 보고 좌우가 함께 선택됩니다 — 어느 쪽을 탭해도 됩니다. ' +
+      '실루엣 위치는 실제 부착 지점의 근사치입니다.';
+    panel.appendChild(hint2);
 
-    const footLbl = document.createElement('span');
-    footLbl.className = 'foot-label';
-    footLbl.textContent = 'LEFT — 탭하여 선택';
-    footWrap.appendChild(footLbl);
-
-    const svg = liveTab.buildFootSVG({ configMode: true });
-    svg.id = 'config-svg';
-
+    /* Both feet, side by side. The drill carries one set of four point
+       IDs and every downstream consumer (paired gauges, session
+       judging, log) reads it for both feet, so the two silhouettes are
+       two views of one selection rather than two independent ones —
+       tapping either mirrors to the other. */
     const selected = new Set(draft.points.map(p => p.id));
+    const grid = document.createElement('div');
+    grid.className = 'foot-pick-grid';
 
-    svg.querySelectorAll('.pp-dot').forEach(dot => {
-      const pid = dot.dataset.id;
-      if (selected.has(pid)) {
-        dot.dataset.selected = 'true';
-        dot.dataset.state    = 'ok';
-      } else {
-        dot.dataset.selected = 'false';
-        dot.dataset.state    = 'inactive';
-      }
+    const svgs = FOOT_IDS.map(foot => {
+      const wrap = document.createElement('div');
+      wrap.className = 'foot-wrap';
 
-      dot.addEventListener('click', () => {
-        const isSel = dot.dataset.selected === 'true';
-        if (!isSel && selected.size >= REQUIRED_POINTS) return;
-        if (isSel) {
-          selected.delete(pid);
-          dot.dataset.selected = 'false';
-          dot.dataset.state    = 'inactive';
-        } else {
-          selected.add(pid);
-          dot.dataset.selected = 'true';
-          dot.dataset.state    = 'ok';
-        }
-        countEl.innerHTML = `<span class="num ${selected.size === REQUIRED_POINTS ? 'full' : ''}">${selected.size}</span> / ${REQUIRED_POINTS} 선택됨`;
+      const lbl = document.createElement('span');
+      lbl.className = 'foot-label';
+      lbl.textContent = FOOT_LABEL[foot];
+      wrap.appendChild(lbl);
+
+      const svg = liveTab.buildFootSVG({ configMode: true, foot });
+      svg.dataset.pickFoot = foot;
+      wrap.appendChild(svg);
+      grid.appendChild(wrap);
+      return svg;
+    });
+
+    function paint() {
+      svgs.forEach(svg => {
+        svg.querySelectorAll('.pp-dot').forEach(dot => {
+          const on = selected.has(dot.dataset.id);
+          dot.dataset.selected = on ? 'true' : 'false';
+          dot.dataset.state    = on ? 'ok' : 'inactive';
+        });
+      });
+      countEl.innerHTML = `<span class="num ${selected.size === REQUIRED_POINTS ? 'full' : ''}">${selected.size}</span> / ${REQUIRED_POINTS} 선택됨`;
+      countEl.style.color = '';
+    }
+
+    function toggle(pid) {
+      if (selected.has(pid))                         selected.delete(pid);
+      else if (selected.size < REQUIRED_POINTS)      selected.add(pid);
+      else return;                                   // already at four
+      paint();
+    }
+
+    // The invisible .pp-hit circle is the touch target and sits above
+    // the dot, so the listener goes there.
+    svgs.forEach(svg => {
+      svg.querySelectorAll('.pp-hit').forEach(hit => {
+        hit.addEventListener('click', () => toggle(hit.dataset.id));
       });
     });
 
-    footWrap.appendChild(svg);
-    panel.appendChild(footWrap);
+    panel.appendChild(grid);
 
     const countEl = document.createElement('div');
     countEl.className = 'pp-select-count';
-    countEl.innerHTML = `<span class="num ${selected.size === REQUIRED_POINTS ? 'full' : ''}">${selected.size}</span> / ${REQUIRED_POINTS} 선택됨`;
     panel.appendChild(countEl);
+
+    // First paint seeds both silhouettes from the draft; it has to run
+    // after countEl exists because paint() writes the counter too.
+    paint();
 
     const nav = document.createElement('div');
     nav.className = 'wizard-nav';

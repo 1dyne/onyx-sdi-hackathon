@@ -103,10 +103,29 @@ const liveTab = (() => {
       dot.setAttribute('data-state', 'inactive');
       dot.setAttribute('cx', pt.svgX);
       dot.setAttribute('cy', pt.svgY);
-      dot.setAttribute('r', configMode ? 11 : 9);
+      dot.setAttribute('r', configMode ? PP_DOT_R_CONFIG : PP_DOT_R);
       if (configMode) dot.setAttribute('data-selected', 'false');
       shapes.appendChild(dot);
     });
+
+    /* Config mode gets an invisible, larger concentric target on top of
+       every dot. The visible circle has to stay small enough that the
+       three heel points do not run into each other, but a finger needs
+       more than that — especially with both feet on one phone screen.
+       Appended as a layer after all the dots so hit-testing order is
+       uniform rather than depending on point order. */
+    if (configMode) {
+      POINT_IDS.forEach(pid => {
+        const pt  = PRESSURE_POINTS[pid];
+        const hit = document.createElementNS(ns, 'circle');
+        hit.setAttribute('class', 'pp-hit');
+        hit.setAttribute('data-id', pid);
+        hit.setAttribute('cx', pt.svgX);
+        hit.setAttribute('cy', pt.svgY);
+        hit.setAttribute('r', PP_HIT_R);
+        shapes.appendChild(hit);
+      });
+    }
 
     svg.appendChild(shapes);
 

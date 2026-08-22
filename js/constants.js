@@ -13,6 +13,20 @@ const PRESSURE_POINTS = {
 
 const POINT_IDS = ['P1','P2','P3','P4','P5','P6','P7'];
 
+/* ── Pressure-dot geometry (viewBox units, 0 0 200 400) ────
+   The tightest pair on the silhouette is the heel row: P5→P6 and
+   P6→P7 are both ~42.8 units apart, so anything past r=21 makes those
+   three overlap. That is the hard ceiling on the touch target.
+
+   Hence two concentric circles in CONFIG: the visible dot stays at 16
+   so the heel row still reads as three separate points, and an
+   invisible 21 sits on top of it so a finger gets ~3.4x the area of
+   the old r=11 dot. CONFIG is used on a phone while someone is
+   fitting an insole, so that difference is one tap versus four. */
+const PP_DOT_R        = 9;   // LIVE — display only, never tapped
+const PP_DOT_R_CONFIG = 16;  // CONFIG — visible selectable dot
+const PP_HIT_R        = 21;  // CONFIG — invisible touch target
+
 const DRILL_TYPES = {
   static: { label:'Static', color:'#5588cc' },
   gait:   { label:'Gait',   color:'#cc8844' },
