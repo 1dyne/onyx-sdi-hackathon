@@ -30,6 +30,10 @@ function createBleLink(foot) {
   let reconnectAttempt      = 0;
   let reconnectTimer        = null;
   let firstDataTimer        = null;
+  // What we actually ended up subscribed to. Surfaced in the RAW
+  // monitor: "connected but silent" is nearly always the wrong
+  // characteristic, and that has to be visible on the phone.
+  let rxSource              = null;
 
   // Rolling window of arrival times, used to report the real sample rate.
   const arrivals = [];
@@ -174,7 +178,8 @@ function createBleLink(foot) {
       rxChar.removeEventListener('characteristicvaluechanged', onRx);
       rxChar.removeEventListener('characteristicvaluechanged', onFirstRx);
     } catch (_) { /* characteristic already invalidated */ }
-    rxChar = null;
+    rxChar   = null;
+    rxSource = null;
   }
 
   /* ── GATT link ─────────────────────────────────────────────────
@@ -188,44 +193,76 @@ function createBleLink(foot) {
     return server;
   }
 
-  /* ── Characteristic discovery ──────────────────────────────────
-     Nordic UART first, since that is what both units ship. The
-     fallback walks whatever services the browser exposed and takes
-     the first notifiable characteristic, so an unexpected firmware
-     still streams instead of failing outright.
+  /* ── Characteristic discovery ───────────────────────
+     Nordic UART is what both units ship, so it is tried twice before
+     anything else. The first failure is usually the Windows discovery
+     race, not a real absence — and demoting to the fallback on that
+     transient error is exactly how a unit ends up subscribed to some
+     unrelated notifiable characteristic (a battery level, say) that
+     never fires. The link then looks perfectly healthy while no data
+     ever arrives, which is far harder to diagnose than a clean failure.
 
-     The fallback re-checks the link before walking it: a failed service
-     lookup often leaves the server disconnected, and discovering blind
-     then throws a second "GATT Server is disconnected" that buries the
-     real reason. Both errors travel together if the fallback fails too. */
+     The fallback keeps preferring Nordic UART if it is present at all,
+     and only takes a foreign characteristic as a last resort — loudly,
+     because that choice is almost always wrong. */
+  async function tryNordicUart(dev) {
+    const live = await ensureConnected(dev);
+    const svc  = await live.getPrimaryService(BLE_UART.service);
+    return await svc.getCharacteristic(BLE_UART.rx);
+  }
+
   async function findNotifyCharacteristic(server, dev) {
-    let primaryErr = null;
-    try {
-      const svc = await server.getPrimaryService(BLE_UART.service);
-      return await svc.getCharacteristic(BLE_UART.rx);
-    } catch (err) {
-      primaryErr = err;
-      console.warn(`[BT:${foot}] Nordic UART 탐색 실패 — 전체 탐색으로 전환:`, err?.message || err);
-    }
+    const errs = [];
 
-    const why = primaryErr?.message || String(primaryErr);
+    for (let i = 1; i <= 2; i++) {
+      try {
+        const c = await tryNordicUart(dev);
+        rxSource = { service: BLE_UART.service, characteristic: BLE_UART.rx, viaFallback: false };
+        return c;
+      } catch (err) {
+        errs.push(`NUS ${i}/2: ${err?.message || err}`);
+        console.warn(`[BT:${foot}] Nordic UART 탐색 실패 (${i}/2):`, err?.message || err);
+        if (i < 2) await bleSleep(BLE_ATTACH_RETRY_MS);
+      }
+    }
 
     try {
       const live     = await ensureConnected(dev);
       const services = await live.getPrimaryServices();
+
+      // Nordic UART found by walking, even though the direct lookup failed.
+      const nus = services.find(s => s.uuid === BLE_UART.service);
+      if (nus) {
+        const chars = await nus.getCharacteristics();
+        const rx = chars.find(c => c.uuid === BLE_UART.rx)
+                || chars.find(c => c.properties.notify || c.properties.indicate);
+        if (rx) {
+          rxSource = { service: nus.uuid, characteristic: rx.uuid, viaFallback: true };
+          console.info(`[BT:${foot}] fallback → Nordic UART`, nus.uuid, rx.uuid);
+          return rx;
+        }
+      }
+
       for (const svc of services) {
         const chars = await svc.getCharacteristics();
         const notif = chars.find(c => c.properties.notify || c.properties.indicate);
         if (notif) {
-          console.info(`[BT:${foot}] fallback characteristic`, svc.uuid, notif.uuid);
+          rxSource = { service: svc.uuid, characteristic: notif.uuid, viaFallback: true };
+          console.warn(
+            `[BT:${foot}] ⚠ Nordic UART 없음 — 임의의 notify 특성을 구독합니다.`,
+            `이 특성이 실제로 데이터를 보내지 않으면 연결만 되고 수신은 없습니다.`,
+            svc.uuid, notif.uuid,
+          );
           return notif;
         }
       }
     } catch (err) {
-      throw new Error(`전체 탐색 실패: ${err?.message || err} — 1차(Nordic UART) 실패: ${why}`);
+      errs.push(`전체 탐색: ${err?.message || err}`);
+      throw new Error(errs.join('  |  '));
     }
 
-    throw new Error(`notify 가능한 캐릭터리스틱을 찾지 못했습니다 — 1차(Nordic UART) 실패: ${why}`);
+    errs.push('notify 가능한 캐릭터리스틱을 찾지 못했습니다');
+    throw new Error(errs.join('  |  '));
   }
 
   /* One attempt: connect if needed, discover, subscribe. */
@@ -422,6 +459,10 @@ function createBleLink(foot) {
     const span = (arrivals[arrivals.length - 1] - arrivals[0]) / 1000;
     return span > 0 ? Math.round((arrivals.length - 1) / span * 10) / 10 : 0;
   };
+
+  /* Which service/characteristic this link is subscribed to, or null.
+     The RAW monitor shows it whenever no data has arrived. */
+  link.rxInfo = () => (rxSource ? { ...rxSource } : null);
 
   link.rawLog = () => rawLog.slice();
   link.clearRawLog = () => { rawLog.length = 0; };

@@ -420,13 +420,36 @@ const configTab = (() => {
 
       const hz    = link.sampleRate();
       const name  = link.deviceName ? ' · ' + link.deviceName : '';
-      const state = link.isConnected() ? '연결됨' : link.isSimulating() ? 'DEMO' : '미연결';
+      // A live GATT link is not a live stream, so 'no-data' has to win
+      // over isConnected() here — otherwise a silent unit reads "연결됨".
+      const state = link.isSimulating()          ? 'DEMO'
+                  : link.status === 'no-data'    ? '데이터 없음'
+                  : link.isConnected()           ? '연결됨'
+                  : '미연결';
       headEl.textContent = `${FOOT_LABEL[foot]}  ${state}${name}  ·  ${hz.toFixed(1)} Hz`;
       headEl.className   = 'raw-head' + (link.isLive() ? ' live' : '');
 
       const entries = link.rawLog().slice(-12).reverse();
       if (!entries.length) {
-        listEl.innerHTML = '<div class="raw-line empty">수신 데이터 없음</div>';
+        // Nothing has arrived. The single most useful fact at this point
+        // is which characteristic we are actually listening to — a
+        // connected-but-silent link is usually subscribed to the wrong
+        // one, and this has to be readable on the phone, not just in a
+        // laptop console.
+        const rx = link.rxInfo?.();
+        let note = '';
+        if (rx) {
+          const right = rx.characteristic === BLE_UART.rx;
+          note = '<div class="raw-range' + (right ? '' : ' warn') + '">구독 중 ' +
+                 escapeHtml(rx.characteristic) + (rx.viaFallback ? ' (fallback)' : '') + '<br>' +
+                 (right
+                   ? 'Nordic UART RX가 맞습니다 — 유닛이 전송을 시작하지 않은 상태입니다.'
+                   : '⚠ Nordic UART RX(…0003)가 아닙니다 — 이 특성은 데이터를 보내지 않습니다.') +
+                 '</div>';
+        } else if (link.isConnected()) {
+          note = '<div class="raw-range warn">구독된 특성 없음 — 연결은 됐지만 notify 구독이 성립하지 않았습니다.</div>';
+        }
+        listEl.innerHTML = note + '<div class="raw-line empty">수신 데이터 없음</div>';
         return;
       }
 
