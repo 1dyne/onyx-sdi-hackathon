@@ -692,6 +692,33 @@ const configTab = (() => {
        still produces a report, just a rule-based one, so the venue
        wifi failing is never the difference between a report and a
        blank screen. */
+    /* ── 기록 ────────────────────────────────────────────── */
+    const recCard = document.createElement('div');
+    recCard.className = 'card card-sm';
+    recCard.style.cssText = 'display:flex;flex-direction:column;gap:var(--gap-sm);';
+
+    const recHdr = document.createElement('div');
+    recHdr.className = 'form-label';
+    recHdr.textContent = '기록';
+    recCard.appendChild(recHdr);
+
+    recCard.appendChild(buildToggleRow(
+      '원시 샘플 기록 (10Hz 전체)',
+      cfg.recordRaw !== false,
+      (checked) => store.saveSettings({ recordRaw: checked }),
+    ));
+
+    const recHint = document.createElement('div');
+    recHint.style.cssText = 'font-size:10px;color:var(--text-muted);line-height:1.5;';
+    recHint.textContent =
+      '켜두세요. 세션 로그는 평균·최대·이탈 횟수만 남기기 때문에, 이걸 끄면 "언제 닿아서 언제 떨어졌는지"가 ' +
+      '사라져 나중에 보행 분석을 만들 수 없습니다. 세션당 발마다 최대 ' +
+      RAW_RECORD_MAX_SAMPLES.toLocaleString() + '샘플(10Hz 기준 20분)까지 기록하고, ' +
+      '저장 공간이 부족하면 오래된 원시 기록부터 자동으로 정리합니다. LOG에서 내보내기로 파일로 빼두세요.';
+    recCard.appendChild(recHint);
+
+    wrap.appendChild(recCard);
+
     const aiCard = document.createElement('div');
     aiCard.className = 'card card-sm';
     aiCard.style.cssText = 'display:flex;flex-direction:column;gap:var(--gap-sm);';

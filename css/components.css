@@ -1272,3 +1272,25 @@ input[type=range] {
   border-top: 1px solid var(--border);
   padding-top: 5px;
 }
+
+/* ── LOG: 백업 / 원시 기록 ───────────────────────────────── */
+.log-backup-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+  padding-bottom: var(--gap-md);
+}
+.log-backup-row .btn { font-size: 11px; padding: 6px 10px; }
+.log-backup-note {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+.log-raw-note {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  padding: var(--gap-xs) 0 var(--gap-sm);
+}

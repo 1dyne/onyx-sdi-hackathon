@@ -903,7 +903,8 @@ const liveTab = (() => {
         environment,
         note: note.value.trim() || null,
       };
-      store.saveSession(log);
+      const r = store.saveSession(log);
+      if (r && r.ok === false) app.showToast('⚠ 저장 실패 — 저장 공간이 부족합니다.');
     }
 
     btnReport.onclick = async () => {

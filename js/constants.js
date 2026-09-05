@@ -82,7 +82,7 @@ const BLE_UART = {
 };
 
 /* ── Feet ──────────────────────────────────────────────────
-   Both units (ESP32 left, NUCODE NU40/nRF52840 right) expose the
+   Both units (NUCODE NU40 / nRF52840, LSM6DS3TR-C) expose the
    identical Nordic UART profile and the same 0-1023 payload, so the
    only thing that distinguishes them is which button the user pressed.
    Nothing in the app infers side from the device name.             */
@@ -126,6 +126,21 @@ const BLE_GATT_SETTLE_MS   = 200;   // wait after gatt.connect() before discover
    'connected' once a notification actually lands; until then it is
    'no-data' and the UI says so. */
 const BLE_FIRST_DATA_MS    = 2000;
+
+/* ── 원시 샘플 기록 ────────────────────────────────────────
+   세션 로그는 집계값만 남긴다 — 평균·최대·이탈 횟수·경고 타임라인.
+   그것만으로는 "언제 닿아서 언제 떨어졌는지"를 되짚을 수 없어서,
+   연속 동작 인식이나 contact time 같은 걸 나중에 만들려면 측정을
+   처음부터 다시 해야 한다. 그래서 10Hz 스트림을 그대로 남긴다.
+
+   한 샘플은 [t, f1, f2, f3, f4, roll, pitch, yaw] 배열 하나다.
+   객체로 두면 키 이름이 샘플마다 반복돼 용량이 세 배가 된다.
+
+   10Hz × 양발 × 20분 = 24,000 샘플 ≈ 1MB. localStorage는 보통
+   5MB 언저리이므로 상한을 두고, 넘으면 기록만 멈춘다 — 세션 자체는
+   끝까지 정상으로 남아야 한다. */
+const RAW_RECORD_MAX_SAMPLES = 12000;   // 발당. 10Hz 기준 20분
+const RAW_SCHEMA             = 1;
 
 const MAX_SENSOR_VAL  = 1023;
 const GAIT_ACTIVE_THR = 80;   // raw value above which a point is considered "active" in gait check

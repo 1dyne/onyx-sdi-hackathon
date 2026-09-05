@@ -12,5 +12,5 @@
    Changing this one line is all that is required to invalidate
    the entire offline cache.
    ───────────────────────────────────────────────────────────── */
-const BUILD_VERSION = '2.3.0';
-const BUILD_DATE    = '2026-08-22';
+const BUILD_VERSION = '2.4.1';
+const BUILD_DATE    = '2026-09-05';

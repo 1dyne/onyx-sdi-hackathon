@@ -361,6 +361,65 @@ const logTab = (() => {
     panel.appendChild(feed);
   }
 
+  /* ── 백업 / 복원 ─────────────────────────────────────────
+     기록이 이 브라우저의 localStorage에만 있다. 브라우저 데이터를
+     지우거나 폰을 바꾸면 그대로 사라지므로, 파일 하나로 빼둘 수
+     있어야 한다. 실측을 다시 하는 것보다 훨씬 싸다. */
+  function buildBackupRow() {
+    const row = document.createElement('div');
+    row.className = 'log-backup-row';
+
+    const btnExport = document.createElement('button');
+    btnExport.className = 'btn btn-ghost';
+    btnExport.textContent = '⭳ 내보내기';
+    btnExport.onclick = () => {
+      const data = store.exportAll();
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `onyx-sdi_${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      app.showToast(`세션 ${data.sessions.length}건 · 동작 ${data.drills.length}개 내보냈습니다`);
+    };
+
+    const btnImport = document.createElement('button');
+    btnImport.className = 'btn btn-ghost';
+    btnImport.textContent = '⭱ 가져오기';
+    const file = document.createElement('input');
+    file.type = 'file';
+    file.accept = 'application/json,.json';
+    file.style.display = 'none';
+    file.onchange = async () => {
+      const f = file.files && file.files[0];
+      file.value = '';
+      if (!f) return;
+      try {
+        const parsed = JSON.parse(await f.text());
+        // 덮어쓰지 않고 합친다. 같은 id는 건너뛰므로 두 번 넣어도 안전하다.
+        const r = store.importAll(parsed);
+        app.showToast(`세션 ${r.sessions}건 · 동작 ${r.drills}개 추가 (중복 ${r.skipped}건 건너뜀)`);
+        renderList();
+      } catch (err) {
+        app.showToast('가져오기 실패 — ' + (err.message || err));
+      }
+    };
+    btnImport.onclick = () => file.click();
+
+    const note = document.createElement('span');
+    note.className = 'log-backup-note';
+    note.textContent = 'API 키는 백업에 포함되지 않습니다';
+
+    row.appendChild(btnExport);
+    row.appendChild(btnImport);
+    row.appendChild(file);
+    row.appendChild(note);
+    return row;
+  }
+
   function renderList() {
     panel.innerHTML = '';
     panel.appendChild(buildViewTabs('list'));
@@ -370,6 +429,7 @@ const logTab = (() => {
     heading.textContent = '누적 통계';
     panel.appendChild(heading);
     panel.appendChild(buildStatsPanel());
+    panel.appendChild(buildBackupRow());
 
     const heading2 = document.createElement('div');
     heading2.className = 'section-heading';
@@ -703,6 +763,22 @@ const logTab = (() => {
     }
 
     // Memo
+    /* 원시 스트림이 이 세션에 남아 있는지. 실착 테스트 중에는 이게
+       채워지는지 눈으로 확인할 수 있어야 한다 — 나중에 열어보고
+       비어 있으면 측정을 다시 해야 하기 때문이다. */
+    if (s.raw) {
+      const rawRow = document.createElement('div');
+      rawRow.className = 'log-raw-note';
+      const counts = FOOT_IDS
+        .filter(f => Array.isArray(s.raw[f]))
+        .map(f => `${FOOT_LABEL[f]} ${s.raw[f].length.toLocaleString()}`)
+        .join('  ·  ');
+      const truncated = FOOT_IDS.some(f => s.byFoot?.[f]?.rawTruncated);
+      rawRow.textContent = `원시 기록 ${counts} 샘플 @${s.raw.hz}Hz` +
+                           (truncated ? '  ⚠ 상한 도달로 일부만 기록됨' : '');
+      panel.appendChild(rawRow);
+    }
+
     /* ── 세션 기록 + AI 조교 리포트 ─────────────────────────
        Both are optional and both are written after the session was
        already saved, so old logs simply render without this block. */

@@ -36,6 +36,9 @@ const store = (() => {
        committed and never leaves the device except in the request to
        OpenAI itself. Empty key simply means the local rule-based
        report is used instead — the feature degrades, it never blocks. */
+    // 10Hz 원시 스트림 기록. 끄면 집계값만 남는다.
+    recordRaw:           true,
+
     coachEnabled:        true,
     coachApiKey:         '',
     coachModel:          'gpt-4o-mini',
@@ -65,6 +68,16 @@ const store = (() => {
   }
 
   function load(key)       { return JSON.parse(localStorage.getItem(key) || '[]'); }
+
+  /* 브라우저마다 이름이 다르다. 이름 대신 코드/문구로도 본다. */
+  function isQuotaError(err) {
+    return err && (
+      err.name === 'QuotaExceededError' ||
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      err.code === 22 || err.code === 1014 ||
+      /quota/i.test(err.message || '')
+    );
+  }
   function save(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
 
   return {
@@ -140,11 +153,99 @@ const store = (() => {
     getSession(id)         { return this.getSessions().find(s => s.sessionId === id) || null; },
     getSessionsByDrill(id) { return this.getSessions().filter(s => s.drillId === id); },
 
+    /* 원시 스트림은 세션 하나로 1MB 가까이 나갈 수 있고 localStorage는
+       5MB 언저리다. 용량 때문에 저장이 거부되면 세션 전체를 잃는 게
+       아니라 원시 블록만 떼고 다시 시도한다 — 집계값과 리포트는
+       무슨 일이 있어도 남아야 한다. 그래도 안 되면 오래된 세션의
+       원시 블록부터 버린다. */
     saveSession(s) {
       const list = this.getSessions();
       const idx  = list.findIndex(x => x.sessionId === s.sessionId);
       if (idx >= 0) list[idx] = s; else list.push(s);
-      save(K.sessions, list);
+
+      try {
+        save(K.sessions, list);
+        return { ok: true };
+      } catch (err) {
+        if (!isQuotaError(err)) throw err;
+        console.warn('[store] 저장 공간 부족 — 오래된 원시 기록부터 정리합니다.');
+      }
+
+      // 1) 오래된 세션의 원시 블록을 앞에서부터 버린다.
+      for (const old of list) {
+        if (old.sessionId === s.sessionId || !old.raw) continue;
+        delete old.raw;
+        try { save(K.sessions, list); return { ok: true, droppedOldRaw: true }; }
+        catch (err) { if (!isQuotaError(err)) throw err; }
+      }
+
+      // 2) 그래도 안 되면 이번 세션의 원시 블록을 포기한다.
+      if (s.raw) {
+        delete s.raw;
+        try { save(K.sessions, list); return { ok: true, droppedThisRaw: true }; }
+        catch (err) { if (!isQuotaError(err)) throw err; }
+      }
+
+      // 3) 최후 — 세션 자체가 안 들어간다. 호출부가 알아야 한다.
+      return { ok: false, reason: 'quota' };
+    },
+
+    /* ── 백업 / 복원 ─────────────────────────────────────────
+       기록이 이 브라우저의 localStorage에만 있다. 데이터를 지우거나
+       폰을 바꾸면 그대로 사라지므로, 파일 하나로 빼고 되넣을 수
+       있어야 한다. */
+    exportAll() {
+      return {
+        format:   'onyx-sdi-backup',
+        version:  typeof BUILD_VERSION === 'string' ? BUILD_VERSION : null,
+        exportedAt: new Date().toISOString(),
+        drills:   this.getDrills(),
+        sessions: this.getSessions(),
+        settings: (() => {
+          // 키는 백업에 넣지 않는다. 파일이 카톡·메일로 돌아다닌다.
+          const { coachApiKey, ...rest } = this.getSettings();
+          return rest;
+        })(),
+      };
+    },
+
+    /* 기존 기록을 지우지 않고 합친다. 같은 id는 건너뛴다 —
+       실수로 두 번 넣어도 중복이 생기지 않는다. */
+    importAll(data, { replace = false } = {}) {
+      if (!data || data.format !== 'onyx-sdi-backup') {
+        throw new Error('Onyx SDI 백업 파일이 아닙니다.');
+      }
+      const out = { drills: 0, sessions: 0, skipped: 0 };
+
+      if (replace) {
+        save(K.drills, []);
+        save(K.sessions, []);
+      }
+
+      const drills = this.getDrills();
+      for (const d of (data.drills || [])) {
+        if (drills.some(x => x.id === d.id)) { out.skipped++; continue; }
+        drills.push(d); out.drills++;
+      }
+      save(K.drills, drills);
+
+      const sessions = this.getSessions();
+      for (const s of (data.sessions || [])) {
+        if (sessions.some(x => x.sessionId === s.sessionId)) { out.skipped++; continue; }
+        sessions.push(s); out.sessions++;
+      }
+      sessions.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      try { save(K.sessions, sessions); }
+      catch (err) {
+        if (!isQuotaError(err)) throw err;
+        throw new Error('저장 공간이 부족합니다. 기존 기록을 내보낸 뒤 정리하고 다시 시도하세요.');
+      }
+
+      if (data.settings) {
+        const { coachApiKey, ...rest } = data.settings;
+        this.saveSettings(rest);
+      }
+      return out;
     },
 
     deleteSession(id) {
