@@ -336,6 +336,15 @@ const liveTab = (() => {
     btnCap.onclick = () => renderFreeCapture();
     capSection.appendChild(btnCap);
 
+    /* 동작 캡처 — FREE CAPTURE가 한 순간을 집는다면 이쪽은 구간을
+       통째로 남긴다. 기준이 아직 없을 때 재료부터 모으는 경로다. */
+    const btnMotion = document.createElement('button');
+    btnMotion.className   = 'btn btn-ghost';
+    btnMotion.style.marginTop = 'var(--gap-xs)';
+    btnMotion.textContent = '🎬  동작 캡처 (연속 기록)';
+    btnMotion.onclick = () => { bindSessionCallbacks(); renderCapture(); };
+    capSection.appendChild(btnMotion);
+
     panel.appendChild(capSection);
     refreshConnectCard();
   }
@@ -735,6 +744,286 @@ const liveTab = (() => {
     refreshFootBadges();
     updateComparison();
     updateConnectionDependentUI();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     동작 캡처 — 판정 없이 원시 스트림만 담는다.
+
+     세션과 나눈 이유는 목적이 다르기 때문이다. 세션은 정해둔 기준에
+     맞췄는지 보는 것이고, 캡처는 아직 기준이 없을 때 재료를 모으는
+     것이다. 걷는 내내 경고음이 울리면 후자를 할 수가 없다.
+
+     길이는 수동 STOP이 기본이다 — 보행이나 반복 동작은 길이가
+     제각각이라 고정 길이로 자르면 동작이 잘린다. 다만 넣어두고 잊는
+     경우가 반드시 생기므로 10분에서 자동으로 멈춘다.
+  ══════════════════════════════════════════════════════════ */
+  function renderCapture() {
+    mode = 'motioncap';
+    currentDrill = null;
+    panel.innerHTML = '';
+
+    let recording  = false;
+    let countInId  = null;
+    let tickId     = null;
+    let autoStopId = null;
+    let label      = '';
+
+    const hdr = document.createElement('div');
+    hdr.className = 'session-header';
+    const titleEl = document.createElement('span');
+    titleEl.className   = 'session-title';
+    titleEl.textContent = '동작 캡처';
+    const hintEl = document.createElement('span');
+    hintEl.id = 'cap-hint';
+    hintEl.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:var(--font-mono);letter-spacing:.08em;';
+    hintEl.textContent = '판정 없음 · 원시 기록';
+    hdr.appendChild(titleEl);
+    hdr.appendChild(hintEl);
+    panel.appendChild(hdr);
+
+    /* ── 라벨 ── */
+    const labelCard = document.createElement('div');
+    labelCard.className = 'card card-sm';
+    labelCard.style.cssText = 'display:flex;flex-direction:column;gap:var(--gap-sm);margin-top:var(--gap-sm);';
+
+    const labelLbl = document.createElement('div');
+    labelLbl.className = 'form-label';
+    labelLbl.textContent = '동작 이름';
+    labelCard.appendChild(labelLbl);
+
+    const labelInput = document.createElement('input');
+    labelInput.className = 'form-input';
+    labelInput.placeholder = '보행, 스쿼트, 한발서기 …';
+    labelInput.oninput = () => { label = labelInput.value.trim(); syncRecBtn(); };
+    labelCard.appendChild(labelInput);
+
+    // 최근 라벨 — 반복 촬영할 때 매번 타이핑하지 않도록.
+    const recent = [...new Set(store.getCaptures().slice(-30).map(c => c.label))]
+                     .filter(Boolean).reverse().slice(0, 6);
+    if (recent.length) {
+      const chips = document.createElement('div');
+      chips.className = 'cap-chips';
+      recent.forEach(l => {
+        const b = document.createElement('button');
+        b.className = 'coach-chip cap-chip-btn';
+        b.textContent = l;
+        b.onclick = () => { labelInput.value = l; label = l; syncRecBtn(); };
+        chips.appendChild(b);
+      });
+      labelCard.appendChild(chips);
+    }
+    panel.appendChild(labelCard);
+
+    /* ── 녹화 상태 ── */
+    const meter = document.createElement('div');
+    meter.className = 'cap-meter';
+    meter.innerHTML =
+      '<div class="cap-time" id="cap-time">00:00</div>' +
+      '<div class="cap-counts" id="cap-counts">대기 중</div>';
+    panel.appendChild(meter);
+
+    // 센서가 실제로 반응하는지 눈으로 보면서 찍을 수 있어야 한다.
+    const feetRow = document.createElement('div');
+    feetRow.className = 'feet-row';
+    FOOT_IDS.forEach(f => feetRow.appendChild(buildFootColumn(f, new Set(POINT_IDS.slice(0, 4)))));
+    panel.appendChild(feetRow);
+
+    /* ── 컨트롤 ── */
+    const actions = document.createElement('div');
+    actions.className = 'live-actions';
+
+    const btnRec = document.createElement('button');
+    btnRec.className = 'btn btn-primary cap-rec';
+    btnRec.textContent = '● REC';
+
+    const btnMark = document.createElement('button');
+    btnMark.className = 'btn btn-ghost';
+    btnMark.textContent = '구간 표시';
+    btnMark.disabled = true;
+
+    const btnBack = document.createElement('button');
+    btnBack.className = 'btn btn-ghost';
+    btnBack.textContent = '나가기';
+
+    actions.appendChild(btnRec);
+    actions.appendChild(btnMark);
+    actions.appendChild(btnBack);
+    panel.appendChild(actions);
+
+    /* ── 저장된 테이크 ── */
+    const takesHdr = document.createElement('div');
+    takesHdr.className = 'section-heading';
+    takesHdr.style.marginTop = 'var(--gap-md)';
+    takesHdr.textContent = '저장된 캡처';
+    panel.appendChild(takesHdr);
+
+    const usage = document.createElement('div');
+    usage.className = 'cap-usage';
+    panel.appendChild(usage);
+
+    const takes = document.createElement('div');
+    takes.className = 'cap-takes';
+    panel.appendChild(takes);
+
+    function syncRecBtn() {
+      btnRec.disabled = !recording && !label;
+      btnRec.title = (!recording && !label) ? '동작 이름을 먼저 입력하세요' : '';
+    }
+
+    function fmtMs(ms) {
+      const s = Math.floor(ms / 1000);
+      return `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+    }
+
+    function renderTakes() {
+      const list = store.getCaptures().slice().reverse();
+      const u = store.storageUsage();
+      usage.textContent = `캡처 ${list.length}건 · 저장소 사용 약 ${u.mb}MB` +
+        (u.mb >= 3.5 ? '  ⚠ 한계에 가깝습니다 — LOG에서 내보낸 뒤 정리하세요' : '');
+      usage.className = 'cap-usage' + (u.mb >= 3.5 ? ' warn' : '');
+
+      takes.innerHTML = '';
+      if (!list.length) {
+        const e = document.createElement('div');
+        e.className = 'empty-state';
+        e.style.padding = 'var(--gap-md)';
+        e.textContent = '아직 캡처가 없습니다.';
+        takes.appendChild(e);
+        return;
+      }
+      list.forEach(c => {
+        const row = document.createElement('div');
+        row.className = 'card card-sm cap-take';
+
+        const info = document.createElement('div');
+        info.style.cssText = 'flex:1;min-width:0;';
+        const t1 = document.createElement('div');
+        t1.className = 'cap-take-title';
+        t1.textContent = `${c.label}  #${c.take}`;
+        const t2 = document.createElement('div');
+        t2.className = 'cap-take-sub';
+        const counts = (c.feet || []).map(f => `${FOOT_LABEL[f]} ${(c[f] || []).length}`).join(' · ');
+        t2.textContent = `${c.duration}s · ${counts} 샘플` +
+                         (c.markers?.length ? ` · 마커 ${c.markers.length}` : '') +
+                         (c.truncated ? ' · ⚠10분 상한' : '') +
+                         (c.trimmedFrom ? ' · 잘라낸 구간' : '');
+        info.appendChild(t1); info.appendChild(t2);
+
+        const del = document.createElement('button');
+        del.className = 'btn-icon';
+        del.style.color = 'var(--color-alert-p)';
+        del.textContent = '✕';
+        del.title = '삭제';
+        del.onclick = (e) => {
+          e.stopPropagation();
+          if (!confirm(`"${c.label} #${c.take}" 캡처를 삭제할까요?`)) return;
+          store.deleteCapture(c.captureId);
+          renderTakes();
+        };
+
+        row.appendChild(info);
+        row.appendChild(del);
+        takes.appendChild(row);
+      });
+    }
+
+    function paintLive() {
+      const el = document.getElementById('cap-counts');
+      if (!el) return;
+      const parts = FOOT_IDS.map(f => `${FOOT_LABEL[f]} ${session.captureSampleCount(f)}`);
+      el.textContent = parts.join('  ·  ') + '  샘플';
+      const tEl = document.getElementById('cap-time');
+      if (tEl) tEl.textContent = fmtMs(session.captureElapsedMs);
+    }
+
+    function beginRecording() {
+      recording = true;
+      session.startCapture();
+      btnRec.textContent = '■ STOP';
+      btnRec.classList.add('recording');
+      btnMark.disabled = false;
+      labelInput.disabled = true;
+      hintEl.textContent = '● 녹화 중';
+      tickId = setInterval(paintLive, 250);
+      // 넣어두고 잊는 경우가 반드시 생긴다.
+      autoStopId = setTimeout(() => {
+        app.showToast('10분 상한에 도달해 캡처를 자동 종료했습니다.');
+        stopRecording();
+      }, CAPTURE_MAX_MS);
+    }
+
+    function stopRecording() {
+      if (!recording) return;
+      recording = false;
+      clearInterval(tickId); tickId = null;
+      clearTimeout(autoStopId); autoStopId = null;
+
+      const data = session.stopCapture();
+      btnRec.textContent = '● REC';
+      btnRec.classList.remove('recording');
+      btnMark.disabled = true;
+      labelInput.disabled = false;
+      hintEl.textContent = '판정 없음 · 원시 기록';
+      document.getElementById('cap-time').textContent = '00:00';
+      document.getElementById('cap-counts').textContent = '대기 중';
+
+      if (!data || !data.feet.length) {
+        app.showToast('수신된 샘플이 없어 저장하지 않았습니다 — 유닛 연결을 확인하세요.');
+        return;
+      }
+
+      const cap = {
+        captureId: store.newCaptureId(),
+        schema:    1,
+        label,
+        take:      store.nextTake(label),
+        date:      new Date().toISOString().slice(0, 10),
+        ...data,
+      };
+      const r = store.saveCapture(cap);
+      if (r.ok === false) {
+        app.showToast('⚠ 저장 공간 부족 — 캡처를 저장하지 못했습니다. LOG에서 내보낸 뒤 정리하세요.');
+        return;
+      }
+      app.showToast(`${cap.label} #${cap.take} 저장 · ${cap.duration}s`);
+      renderTakes();
+    }
+
+    btnRec.onclick = () => {
+      if (recording) { stopRecording(); return; }
+      if (!label) { labelInput.focus(); return; }
+      if (!bluetooth.isAnyLive()) {
+        app.showToast('연결된 유닛이 없습니다 — 헤더의 L / R 버튼으로 연결하세요.');
+        return;
+      }
+      // 카운트인 — 폰을 주머니에 넣거나 자세를 잡을 시간.
+      let n = CAPTURE_COUNTIN_SEC;
+      btnRec.disabled = true;
+      hintEl.textContent = `${n}…`;
+      countInId = setInterval(() => {
+        n--;
+        if (n > 0) { hintEl.textContent = `${n}…`; return; }
+        clearInterval(countInId); countInId = null;
+        btnRec.disabled = false;
+        beginRecording();
+      }, 1000);
+    };
+
+    btnMark.onclick = () => {
+      const m = session.markCapture();
+      if (m) app.showToast(`구간 표시 ${fmtMs(m.t)}`);
+    };
+
+    btnBack.onclick = () => {
+      if (recording && !confirm('녹화 중입니다. 중단하고 나갈까요?\n지금까지 찍힌 구간은 저장됩니다.')) return;
+      if (countInId) clearInterval(countInId);
+      if (recording) stopRecording();
+      renderIdle();
+    };
+
+    syncRecBtn();
+    renderTakes();
+    refreshFootBadges();
   }
 
   /* -- Render wrap-up: record form -> AI coach report ---------
@@ -1411,6 +1700,13 @@ const liveTab = (() => {
       markDirty(foot);
     };
 
+    /* 캡처 중에는 판정 결과가 없으므로 실루엣만 살아 있으면 된다.
+       센서가 반응하는지 눈으로 확인하면서 찍기 위한 것이다. */
+    session.onCaptureTick = (foot, values) => {
+      latest[foot] = { values, alerts: [], accuracy: null };
+      markDirty(foot);
+    };
+
     // A foot that starts streaming mid-session joins from that moment.
     session.onFootJoin = (foot) => {
       refreshFootBadges();
@@ -1457,6 +1753,7 @@ const liveTab = (() => {
     },
 
     startFreeCapture() { renderFreeCapture(); },
+    startMotionCapture() { bindSessionCallbacks(); renderCapture(); },
     prepareSession(drill) { renderReady(drill); },
 
     startSession(drill) {

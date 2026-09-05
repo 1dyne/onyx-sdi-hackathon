@@ -51,6 +51,7 @@ const session = (() => {
   const state = {
     active:        false,
     freeCapture:   false,
+    capturing:     false,   // 동작 캡처 — 판정 없이 원시만
     recordRaw:     true,
     drill:         null,
     sessionId:     null,
@@ -67,6 +68,8 @@ const session = (() => {
   let onEnd      = null;   // (sessionLog)
   let onFreeTick = null;   // (foot, values, imu) — free-capture only
   let onFootJoin = null;   // (foot) — a foot started streaming mid-session
+  let onCaptureTick = null;// (foot, values, elapsedMs) — 동작 캡처 중에만
+  let captureMarkers = [];
 
   function fmt2(n) { return String(n).padStart(2, '0'); }
 
@@ -181,6 +184,7 @@ const session = (() => {
     set onEnd(fn)      { onEnd      = fn; },
     set onFreeTick(fn) { onFreeTick = fn; },
     set onFootJoin(fn) { onFootJoin = fn; },
+    set onCaptureTick(fn) { onCaptureTick = fn; },
 
     fmtElapsed() {
       const m = Math.floor(state.elapsed / 60);
@@ -230,6 +234,62 @@ const session = (() => {
       }, 1000);
     },
 
+    /* ── 동작 캡처 ─────────────────────────────────────────── */
+    get isCapturing() { return state.capturing; },
+    get captureElapsedMs() { return state.capturing ? Date.now() - state.startTime : 0; },
+    captureSampleCount(f) { return footState(f).raw.length; },
+    captureMarkers() { return captureMarkers.slice(); },
+
+    startCapture() {
+      audio.init();
+      Object.assign(state, {
+        active:      true,
+        freeCapture: false,
+        capturing:   true,
+        drill:       null,
+        sessionId:   null,
+        startTime:   Date.now(),
+        elapsed:     0,
+        memo:        '',
+      });
+      resetFeet(null);
+      captureMarkers = [];
+
+      state.timerInterval = setInterval(() => {
+        state.elapsed++;
+        onTick?.(state.elapsed, {}, 0);
+      }, 1000);
+    },
+
+    /* 구간 표시. 나중에 파형에서 어디를 잘라야 할지 찾는 단서다 —
+       찍을 당시에는 알지만 10분짜리 파형을 나중에 보면 모른다. */
+    markCapture() {
+      if (!state.capturing) return null;
+      const m = { t: Date.now() - state.startTime };
+      captureMarkers.push(m);
+      return m;
+    },
+
+    stopCapture() {
+      if (!state.capturing) return null;
+      state.capturing = false;
+      state.active    = false;
+      clearInterval(state.timerInterval);
+
+      const feet = FOOT_IDS.filter(f => state.feet[f].raw.length);
+      const out = {
+        hz: 10,
+        fields: ['t','fsr1','fsr2','fsr3','fsr4','roll','pitch','yaw'],
+        startedAt: state.startTime,
+        duration: Math.round((Date.now() - state.startTime) / 100) / 10,
+        feet,
+        markers: captureMarkers.slice(),
+        truncated: FOOT_IDS.some(f => state.feet[f].raw.length >= CAPTURE_MAX_SAMPLES),
+      };
+      for (const f of feet) out[f] = state.feet[f].raw;
+      return out;
+    },
+
     /* Snapshot both feet. Feet that never joined return null so the
        config wizard can register a one-foot capture cleanly. */
     stopFreeCapture() {
@@ -250,6 +310,26 @@ const session = (() => {
     /* ── Sample ingestion ───────────────────────────────────────
        Called once per packet with the foot it arrived on. */
     feed(values, foot = FOOT.LEFT) {
+      /* 동작 캡처는 판정 경로를 통째로 건너뛴다. alertEngine도
+         경고음도 정확도도 돌리지 않는다 — 걷는 내내 삑삑거리면
+         데이터를 모을 수가 없고, 그 판정값은 어차피 쓰지 않는다. */
+      if (state.capturing) {
+        const fs = footState(foot);
+        if (!fs.joined) { fs.joined = true; fs.joinedAt = state.elapsed; onFootJoin?.(foot); }
+        fs.currentValues = values;
+        fs.currentImu = { roll: values[4] ?? 0, pitch: values[5] ?? 0, yaw: values[6] ?? 0 };
+
+        const t = Date.now() - state.startTime;
+        if (fs.raw.length < CAPTURE_MAX_SAMPLES) {
+          fs.raw.push([t, values[0], values[1], values[2], values[3],
+                       Math.round((values[4] ?? 0) * 10) / 10,
+                       Math.round((values[5] ?? 0) * 10) / 10,
+                       Math.round((values[6] ?? 0) * 10) / 10]);
+        }
+        onCaptureTick?.(foot, values, t);
+        return;
+      }
+
       if (!state.active) return;
       const fs = footState(foot);
 
@@ -377,6 +457,7 @@ const session = (() => {
        unchanged, and adds byFoot for the per-side breakdown. */
     end() {
       if (!state.active) return null;
+      if (state.capturing) return null;   // 캡처는 stopCapture()로 끝낸다
 
       if (state.freeCapture) {
         state.active      = false;

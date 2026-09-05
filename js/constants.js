@@ -142,6 +142,18 @@ const BLE_FIRST_DATA_MS    = 2000;
 const RAW_RECORD_MAX_SAMPLES = 12000;   // 발당. 10Hz 기준 20분
 const RAW_SCHEMA             = 1;
 
+/* ── 동작 캡처 ─────────────────────────────────────────────
+   판정 없이 원시 스트림만 담는 모드. 세션과 달리 drill이 없고
+   정확도도 경고음도 없다 — 데이터를 모으는 것이 유일한 목적이다.
+
+   길이는 수동 STOP이 기본이다. 보행이나 반복 동작은 길이가 제각각
+   이라 고정 길이로 자르면 동작이 잘린다. 다만 주머니에 넣고 잊는
+   경우가 반드시 생기므로 10분에서 자동으로 멈춘다 — 발당 6,000샘플,
+   약 400KB다. */
+const CAPTURE_MAX_MS      = 10 * 60 * 1000;
+const CAPTURE_MAX_SAMPLES = 6200;          // 발당. 10분 + 약간의 여유
+const CAPTURE_COUNTIN_SEC = 3;             // 자세 잡을 시간
+
 const MAX_SENSOR_VAL  = 1023;
 const GAIT_ACTIVE_THR = 80;   // raw value above which a point is considered "active" in gait check
 const REQUIRED_POINTS = 4;    // drills always use exactly 4 active points

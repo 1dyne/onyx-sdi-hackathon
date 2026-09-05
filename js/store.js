@@ -2,6 +2,7 @@ const store = (() => {
   const K = {
     drills:   'onyxSDI_drills',
     sessions: 'onyxSDI_sessions',
+    captures: 'onyxSDI_captures',
     settings: 'onyxSDI_settings',
   };
 
@@ -201,6 +202,7 @@ const store = (() => {
         exportedAt: new Date().toISOString(),
         drills:   this.getDrills(),
         sessions: this.getSessions(),
+        captures: this.getCaptures(),
         settings: (() => {
           // 키는 백업에 넣지 않는다. 파일이 카톡·메일로 돌아다닌다.
           const { coachApiKey, ...rest } = this.getSettings();
@@ -215,11 +217,12 @@ const store = (() => {
       if (!data || data.format !== 'onyx-sdi-backup') {
         throw new Error('Onyx SDI 백업 파일이 아닙니다.');
       }
-      const out = { drills: 0, sessions: 0, skipped: 0 };
+      const out = { drills: 0, sessions: 0, captures: 0, skipped: 0 };
 
       if (replace) {
         save(K.drills, []);
         save(K.sessions, []);
+        save(K.captures, []);
       }
 
       const drills = this.getDrills();
@@ -241,6 +244,17 @@ const store = (() => {
         throw new Error('저장 공간이 부족합니다. 기존 기록을 내보낸 뒤 정리하고 다시 시도하세요.');
       }
 
+      const captures = this.getCaptures();
+      for (const c of (data.captures || [])) {
+        if (captures.some(x => x.captureId === c.captureId)) { out.skipped++; continue; }
+        captures.push(c); out.captures++;
+      }
+      try { save(K.captures, captures); }
+      catch (err) {
+        if (!isQuotaError(err)) throw err;
+        throw new Error('저장 공간이 부족합니다. 기존 캡처를 내보낸 뒤 정리하고 다시 시도하세요.');
+      }
+
       if (data.settings) {
         const { coachApiKey, ...rest } = data.settings;
         this.saveSettings(rest);
@@ -250,6 +264,52 @@ const store = (() => {
 
     deleteSession(id) {
       save(K.sessions, this.getSessions().filter(s => s.sessionId !== id));
+    },
+
+    /* ── 동작 캡처 ───────────────────────────────────────────
+       세션과 따로 둔다. 캡처는 drill도 정확도도 리포트도 없어서
+       세션 배열에 섞으면 LOG의 누적 통계와 조교 피드가 오염된다. */
+    getCaptures()      { return load(K.captures); },
+    getCapture(id)     { return this.getCaptures().find(c => c.captureId === id) || null; },
+
+    /* 같은 라벨의 다음 테이크 번호. */
+    nextTake(label) {
+      const n = this.getCaptures().filter(c => c.label === label).length;
+      return n + 1;
+    },
+
+    saveCapture(c) {
+      const list = this.getCaptures();
+      const idx  = list.findIndex(x => x.captureId === c.captureId);
+      if (idx >= 0) list[idx] = c; else list.push(c);
+      try {
+        save(K.captures, list);
+        return { ok: true };
+      } catch (err) {
+        if (!isQuotaError(err)) throw err;
+        return { ok: false, reason: 'quota' };
+      }
+    },
+
+    deleteCapture(id) {
+      save(K.captures, this.getCaptures().filter(c => c.captureId !== id));
+    },
+
+    newCaptureId() {
+      const d  = new Date();
+      const ds = d.toISOString().slice(0, 10).replace(/-/g, '');
+      return `c_${ds}_${Date.now().toString().slice(-5)}`;
+    },
+
+    /* 대략적인 사용량. localStorage에 정확한 잔량 API가 없어서
+       저장된 문자열 길이로 어림한다 — 현장에서 "얼마나 남았나"를
+       판단하는 용도로는 충분하다. */
+    storageUsage() {
+      let bytes = 0;
+      for (const k of Object.values(K)) {
+        bytes += (localStorage.getItem(k) || '').length;
+      }
+      return { bytes, kb: Math.round(bytes / 1024), mb: Math.round(bytes / 1024 / 102.4) / 10 };
     },
 
     newSessionId() {
