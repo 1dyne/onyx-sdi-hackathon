@@ -921,6 +921,9 @@ const liveTab = (() => {
           renderTakes();
         };
 
+        row.style.cursor = 'pointer';
+        row.onclick = () => renderCaptureDetail(c, () => renderCapture());
+
         row.appendChild(info);
         row.appendChild(del);
         takes.appendChild(row);
@@ -1024,6 +1027,307 @@ const liveTab = (() => {
     syncRecBtn();
     renderTakes();
     refreshFootBadges();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     캡처 상세 — 파형을 보고 좋은 구간만 잘라낸다.
+
+     이게 캡처의 목적이다. 10분을 통째로 찍어봐야 그 안에서 제대로
+     된 몇 초를 골라내지 못하면 훈련 기준으로 쓸 수 없다.
+
+     10Hz × 10분 = 6,000점을 폰 화면 350px에 그대로 그릴 수는 없어서
+     구간별 min/max로 줄여 그린다. 봉우리와 골이 뭉개지지 않아야
+     접지 시점을 눈으로 찾을 수 있다 — 평균으로 줄이면 그게 사라진다.
+  ══════════════════════════════════════════════════════════ */
+
+  const TRIM_W = 340, TRIM_H = 120, TRIM_PAD = 6;
+
+  /* min/max 데시메이션. buckets 개로 줄이되 각 구간의 최소·최대를
+     모두 남겨 파형의 진폭을 보존한다. */
+  function decimate(samples, ch, buckets) {
+    const n = samples.length;
+    if (!n) return [];
+    const per = Math.max(1, Math.ceil(n / buckets));
+    const out = [];
+    for (let i = 0; i < n; i += per) {
+      let lo = Infinity, hi = -Infinity;
+      for (let j = i; j < Math.min(i + per, n); j++) {
+        const v = samples[j][ch];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      out.push({ i, lo, hi });
+    }
+    return out;
+  }
+
+  function renderCaptureDetail(cap, onBack) {
+    mode = 'captrim';
+    panel.innerHTML = '';
+
+    const feet = (cap.feet || []).filter(f => Array.isArray(cap[f]) && cap[f].length);
+    let viewFoot = feet[0] || FOOT.LEFT;
+    const dur = () => {
+      const arr = cap[viewFoot] || [];
+      return arr.length ? arr[arr.length - 1][0] : 0;
+    };
+    // 선택 구간 (ms)
+    let selA = 0, selB = dur();
+
+    const back = document.createElement('button');
+    back.className = 'detail-back';
+    back.textContent = '← 캡처 목록';
+    back.onclick = onBack;
+    panel.appendChild(back);
+
+    const hdr = document.createElement('div');
+    hdr.className = 'session-header';
+    const ttl = document.createElement('span');
+    ttl.className = 'session-title';
+    ttl.textContent = `${cap.label}  #${cap.take}`;
+    const sub = document.createElement('span');
+    sub.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:var(--font-mono);';
+    sub.textContent = `${cap.duration}s · ${cap.date}`;
+    hdr.appendChild(ttl); hdr.appendChild(sub);
+    panel.appendChild(hdr);
+
+    // 발 전환
+    if (feet.length > 1) {
+      const ft = document.createElement('div');
+      ft.className = 'dir-toggle trim-foot';
+      feet.forEach(f => {
+        const b = document.createElement('button');
+        b.className = 'dir-btn' + (f === viewFoot ? ' selected-positive' : '');
+        b.textContent = FOOT_LABEL[f];
+        b.onclick = () => {
+          viewFoot = f;
+          ft.querySelectorAll('.dir-btn').forEach((el, i) =>
+            el.classList.toggle('selected-positive', feet[i] === f));
+          draw();
+        };
+        ft.appendChild(b);
+      });
+      panel.appendChild(ft);
+    }
+
+    const chartBox = document.createElement('div');
+    chartBox.className = 'trim-box';
+    panel.appendChild(chartBox);
+
+    const readout = document.createElement('div');
+    readout.className = 'trim-readout';
+    panel.appendChild(readout);
+
+    /* 범위 슬라이더 두 개. 폰에서 파형 위 드래그 핸들은 손가락에
+       가려 정확히 못 맞춘다. 슬라이더는 보이면서 조절된다. */
+    const ctrls = document.createElement('div');
+    ctrls.className = 'trim-ctrls';
+
+    const mkRange = (labelText, getV, setV) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'trim-range';
+      const l = document.createElement('span');
+      l.className = 'trim-range-label';
+      l.textContent = labelText;
+      const r = document.createElement('input');
+      r.type = 'range'; r.min = '0'; r.max = String(dur()); r.step = '100';
+      r.value = String(getV());
+      r.oninput = () => { setV(Number(r.value)); draw(); };
+      wrap.appendChild(l); wrap.appendChild(r);
+      return { wrap, input: r };
+    };
+
+    const ra = mkRange('시작', () => selA, v => { selA = Math.min(v, selB - 200); });
+    const rb = mkRange('끝',   () => selB, v => { selB = Math.max(v, selA + 200); });
+    ctrls.appendChild(ra.wrap);
+    ctrls.appendChild(rb.wrap);
+    panel.appendChild(ctrls);
+
+    // 마커로 스냅 — 녹화 중 눌러둔 지점이 곧 좋은 구간의 단서다.
+    if (cap.markers && cap.markers.length) {
+      const mrow = document.createElement('div');
+      mrow.className = 'trim-markers';
+      const lbl = document.createElement('span');
+      lbl.className = 'trim-range-label';
+      lbl.textContent = '마커';
+      mrow.appendChild(lbl);
+      cap.markers.forEach((m, i) => {
+        const b = document.createElement('button');
+        b.className = 'coach-chip cap-chip-btn';
+        b.textContent = `${(m.t/1000).toFixed(1)}s`;
+        b.title = '이 지점을 시작으로 (길게 눌러 끝으로)';
+        b.onclick = () => { selA = Math.min(m.t, selB - 200); sync(); draw(); };
+        b.oncontextmenu = (e) => { e.preventDefault(); selB = Math.max(m.t, selA + 200); sync(); draw(); };
+        mrow.appendChild(b);
+      });
+      panel.appendChild(mrow);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'live-actions';
+
+    const btnAll = document.createElement('button');
+    btnAll.className = 'btn btn-ghost';
+    btnAll.textContent = '전체 선택';
+    btnAll.onclick = () => { selA = 0; selB = dur(); sync(); draw(); };
+
+    const btnSave = document.createElement('button');
+    btnSave.className = 'btn btn-primary';
+    btnSave.textContent = '선택 구간 저장';
+    btnSave.onclick = () => saveTrim();
+
+    const btnRef = document.createElement('button');
+    btnRef.className = 'btn btn-ok';
+    btnRef.textContent = '기준값으로 →';
+    btnRef.title = '선택 구간의 값으로 새 동작(drill)을 만듭니다';
+    btnRef.onclick = () => useAsReference();
+
+    actions.appendChild(btnSave);
+    actions.appendChild(btnRef);
+    actions.appendChild(btnAll);
+    panel.appendChild(actions);
+
+    function sync() {
+      ra.input.value = String(selA);
+      rb.input.value = String(selB);
+    }
+
+    function sliceOf(f) {
+      const arr = cap[f];
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(s => s[0] >= selA && s[0] <= selB);
+    }
+
+    function draw() {
+      const arr = cap[viewFoot] || [];
+      const total = dur() || 1;
+      const ns = 'http://www.w3.org/2000/svg';
+      chartBox.innerHTML = '';
+
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('viewBox', `0 0 ${TRIM_W} ${TRIM_H}`);
+      svg.setAttribute('class', 'trim-chart');
+      svg.setAttribute('preserveAspectRatio', 'none');
+
+      const x = t => TRIM_PAD + (TRIM_W - TRIM_PAD * 2) * (t / total);
+      const y = v => TRIM_H - TRIM_PAD - (TRIM_H - TRIM_PAD * 2) * (Math.max(0, Math.min(MAX_SENSOR_VAL, v)) / MAX_SENSOR_VAL);
+
+      // 선택 밖은 어둡게 — 무엇이 잘려나갈지 즉시 보인다
+      [[0, selA], [selB, total]].forEach(([a, b]) => {
+        if (b <= a) return;
+        const r = document.createElementNS(ns, 'rect');
+        r.setAttribute('x', x(a)); r.setAttribute('y', 0);
+        r.setAttribute('width', Math.max(0, x(b) - x(a)));
+        r.setAttribute('height', TRIM_H);
+        r.setAttribute('class', 'trim-mask');
+        svg.appendChild(r);
+      });
+
+      // FSR 4채널
+      const buckets = TRIM_W - TRIM_PAD * 2;
+      for (let ch = 1; ch <= 4; ch++) {
+        const dec = decimate(arr, ch, buckets);
+        if (!dec.length) continue;
+        let d = '';
+        dec.forEach((b, k) => {
+          const px = x(arr[b.i][0]);
+          d += `${k ? 'L' : 'M'}${px.toFixed(1)},${y(b.hi).toFixed(1)}`;
+        });
+        for (let k = dec.length - 1; k >= 0; k--) {
+          const b = dec[k];
+          d += `L${x(arr[b.i][0]).toFixed(1)},${y(b.lo).toFixed(1)}`;
+        }
+        d += 'Z';
+        const path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('class', `trim-ch ch${ch}`);
+        svg.appendChild(path);
+      }
+
+      // 마커
+      (cap.markers || []).forEach(m => {
+        const line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', x(m.t)); line.setAttribute('x2', x(m.t));
+        line.setAttribute('y1', 0); line.setAttribute('y2', TRIM_H);
+        line.setAttribute('class', 'trim-marker');
+        svg.appendChild(line);
+      });
+
+      // 선택 경계
+      [selA, selB].forEach(t => {
+        const line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', x(t)); line.setAttribute('x2', x(t));
+        line.setAttribute('y1', 0); line.setAttribute('y2', TRIM_H);
+        line.setAttribute('class', 'trim-edge');
+        svg.appendChild(line);
+      });
+
+      chartBox.appendChild(svg);
+
+      const n = sliceOf(viewFoot).length;
+      readout.textContent =
+        `선택 ${(selA/1000).toFixed(1)}s – ${(selB/1000).toFixed(1)}s ` +
+        `(${((selB - selA)/1000).toFixed(1)}s · ${n}샘플)` +
+        `   |   P1 P2 P3 P4 = 채널 1-4`;
+    }
+
+    function saveTrim() {
+      const out = { left: sliceOf('left'), right: sliceOf('right') };
+      const keep = FOOT_IDS.filter(f => out[f].length);
+      if (!keep.length) { app.showToast('선택 구간에 샘플이 없습니다.'); return; }
+
+      const label = `${cap.label}-구간`;
+      const trimmed = {
+        captureId: store.newCaptureId(),
+        schema: 1, label, take: store.nextTake(label),
+        date: new Date().toISOString().slice(0, 10),
+        hz: cap.hz, fields: cap.fields,
+        startedAt: cap.startedAt + selA,
+        duration: Math.round((selB - selA) / 100) / 10,
+        feet: keep,
+        // 잘라낸 구간은 t를 0부터 다시 센다. 그래야 여러 구간을
+        // 같은 축에 올려 비교할 수 있다.
+        markers: (cap.markers || []).filter(m => m.t >= selA && m.t <= selB)
+                                    .map(m => ({ t: m.t - selA })),
+        trimmedFrom: cap.captureId,
+      };
+      keep.forEach(f => { trimmed[f] = out[f].map(s => [s[0] - selA, ...s.slice(1)]); });
+
+      const r = store.saveCapture(trimmed);
+      if (r.ok === false) { app.showToast('⚠ 저장 공간 부족 — 저장하지 못했습니다.'); return; }
+      app.showToast(`${label} #${trimmed.take} 저장 · ${trimmed.duration}s`);
+    }
+
+    /* 선택 구간 → drill 기준값. 기존 FREE CAPTURE 경로를 그대로
+       재사용한다 — configTab.startFromCapture()가 { values, imu }를
+       받으므로, 구간의 채널별 최대값을 대표값으로 넘긴다.
+       접지 동작에서는 평균보다 봉우리가 기준으로 의미가 있다. */
+    function useAsReference() {
+      const snapshot = { left: null, right: null };
+      let any = false;
+      for (const f of FOOT_IDS) {
+        const seg = sliceOf(f);
+        if (!seg.length) continue;
+        const peak = [0, 0, 0, 0];
+        let rs = 0, ps = 0, ys = 0;
+        seg.forEach(s => {
+          for (let c = 0; c < 4; c++) if (s[c + 1] > peak[c]) peak[c] = s[c + 1];
+          rs += s[5]; ps += s[6]; ys += s[7];
+        });
+        snapshot[f] = {
+          values: [...peak, rs / seg.length, ps / seg.length, ys / seg.length],
+          imu: { roll: rs / seg.length, pitch: ps / seg.length, yaw: ys / seg.length },
+        };
+        any = true;
+      }
+      if (!any) { app.showToast('선택 구간에 샘플이 없습니다.'); return; }
+      configTab.startFromCapture(snapshot);
+      app.switchTab('config');
+      app.showToast('선택 구간의 채널별 최대값을 기준값으로 넘겼습니다.');
+    }
+
+    sync();
+    draw();
   }
 
   /* -- Render wrap-up: record form -> AI coach report ---------

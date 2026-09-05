@@ -1350,3 +1350,79 @@ input[type=range] {
   letter-spacing: 0.04em;
   margin-top: 2px;
 }
+
+/* ── 캡처 구간 자르기 ────────────────────────────────────── */
+.trim-foot { margin-bottom: var(--gap-sm); }
+.trim-box  { padding: var(--gap-xs) 0; }
+.trim-chart {
+  width: 100%;
+  height: 120px;
+  display: block;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+}
+/* 선택 밖은 덮어서 무엇이 잘려나갈지 즉시 보이게 한다 */
+.trim-mask { fill: var(--bg-base); opacity: 0.72; }
+.trim-edge { stroke: var(--color-ok); stroke-width: 1.5; }
+.trim-marker { stroke: var(--text-bright); stroke-width: 1; stroke-dasharray: 2 3; opacity: .7; }
+
+/* 4채널을 색으로 구분. 파형이 겹치므로 채도보다 명도 차이를 준다. */
+.trim-ch      { stroke: none; opacity: 0.62; }
+.trim-ch.ch1  { fill: #6fa8dc; }
+.trim-ch.ch2  { fill: #c9a227; }
+.trim-ch.ch3  { fill: #7fb069; }
+.trim-ch.ch4  { fill: #c07a5a; }
+
+.trim-readout {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+  padding: 4px 0 var(--gap-sm);
+}
+.trim-ctrls { display: flex; flex-direction: column; gap: 6px; }
+.trim-range { display: flex; align-items: center; gap: var(--gap-sm); }
+/* 기본 range는 폰에서 4px 높이로 잡혀 사실상 못 누른다. 자르기의
+   주 조작부이므로 트랙은 얇게 두되 손잡이와 히트 영역을 키운다. */
+.trim-range input[type="range"] {
+  flex: 1;
+  height: 36px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.trim-range input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--border-hi);
+  border-radius: 2px;
+}
+.trim-range input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px; height: 24px;
+  margin-top: -10px;
+  border-radius: 50%;
+  background: var(--color-ok);
+  border: 2px solid var(--bg-base);
+}
+.trim-range input[type="range"]::-moz-range-track {
+  height: 4px; background: var(--border-hi); border-radius: 2px;
+}
+.trim-range input[type="range"]::-moz-range-thumb {
+  width: 24px; height: 24px; border: 2px solid var(--bg-base);
+  border-radius: 50%; background: var(--color-ok);
+}
+.trim-range-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 28px;
+  flex-shrink: 0;
+}
+.trim-markers {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  padding-top: var(--gap-sm);
+}
+/* 마커 칩도 손가락으로 눌러야 한다 */
+.trim-markers .coach-chip { padding: 7px 12px; font-size: 11px; }
+.cap-chips .cap-chip-btn  { padding: 7px 12px; font-size: 11px; }
