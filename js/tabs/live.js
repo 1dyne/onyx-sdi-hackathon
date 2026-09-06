@@ -341,7 +341,7 @@ const liveTab = (() => {
     const btnMotion = document.createElement('button');
     btnMotion.className   = 'btn btn-ghost';
     btnMotion.style.marginTop = 'var(--gap-xs)';
-    btnMotion.textContent = '🎬  동작 캡처 (연속 기록)';
+    btnMotion.textContent = '🎬  MOTION CAPTURE (연속 기록)';
     btnMotion.onclick = () => { bindSessionCallbacks(); renderCapture(); };
     capSection.appendChild(btnMotion);
 
@@ -763,6 +763,7 @@ const liveTab = (() => {
     panel.innerHTML = '';
 
     let recording  = false;
+    let countingIn = false;
     let countInId  = null;
     let tickId     = null;
     let autoStopId = null;
@@ -772,7 +773,7 @@ const liveTab = (() => {
     hdr.className = 'session-header';
     const titleEl = document.createElement('span');
     titleEl.className   = 'session-title';
-    titleEl.textContent = '동작 캡처';
+    titleEl.textContent = 'MOTION CAPTURE';
     const hintEl = document.createElement('span');
     hintEl.id = 'cap-hint';
     hintEl.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:var(--font-mono);letter-spacing:.08em;';
@@ -819,7 +820,7 @@ const liveTab = (() => {
     meter.className = 'cap-meter';
     meter.innerHTML =
       '<div class="cap-time" id="cap-time">00:00</div>' +
-      '<div class="cap-counts" id="cap-counts">대기 중</div>';
+      '<div class="cap-counts" id="cap-counts">동작 이름을 입력하세요</div>';
     panel.appendChild(meter);
 
     // 센서가 실제로 반응하는지 눈으로 보면서 찍을 수 있어야 한다.
@@ -866,8 +867,15 @@ const liveTab = (() => {
     panel.appendChild(takes);
 
     function syncRecBtn() {
-      btnRec.disabled = !recording && !label;
+      /* 이름이 비어 있어도 REC를 완전히 잠그지 않는다.
+         disabled 버튼은 click이 안 나서, 사용자에게 왜 시작되지
+         않는지 알릴 방법이 없다. 카운트인 중에만 중복 클릭을 막는다. */
+      btnRec.disabled = countingIn;
       btnRec.title = (!recording && !label) ? '동작 이름을 먼저 입력하세요' : '';
+      if (!recording && !countingIn) {
+        const status = document.getElementById('cap-counts');
+        if (status) status.textContent = label ? 'REC를 눌러 시작하세요' : '동작 이름을 입력하세요';
+      }
     }
 
     function fmtMs(ms) {
@@ -940,13 +948,16 @@ const liveTab = (() => {
     }
 
     function beginRecording() {
+      countingIn = false;
       recording = true;
       session.startCapture();
+      btnRec.disabled = false;
       btnRec.textContent = '■ STOP';
       btnRec.classList.add('recording');
       btnMark.disabled = false;
       labelInput.disabled = true;
       hintEl.textContent = '● 녹화 중';
+      paintLive();
       tickId = setInterval(paintLive, 250);
       // 넣어두고 잊는 경우가 반드시 생긴다.
       autoStopId = setTimeout(() => {
@@ -968,7 +979,7 @@ const liveTab = (() => {
       labelInput.disabled = false;
       hintEl.textContent = '판정 없음 · 원시 기록';
       document.getElementById('cap-time').textContent = '00:00';
-      document.getElementById('cap-counts').textContent = '대기 중';
+      document.getElementById('cap-counts').textContent = 'REC를 눌러 시작하세요';
 
       if (!data || !data.feet.length) {
         app.showToast('수신된 샘플이 없어 저장하지 않았습니다 — 유닛 연결을 확인하세요.');
@@ -994,20 +1005,40 @@ const liveTab = (() => {
 
     btnRec.onclick = () => {
       if (recording) { stopRecording(); return; }
-      if (!label) { labelInput.focus(); return; }
+      if (countingIn) return;
+      if (!label) {
+        labelInput.focus();
+        app.showToast('동작 이름을 입력한 뒤 REC를 눌러주세요.');
+        return;
+      }
       if (!bluetooth.isAnyLive()) {
         app.showToast('연결된 유닛이 없습니다 — 헤더의 L / R 버튼으로 연결하세요.');
         return;
       }
       // 카운트인 — 폰을 주머니에 넣거나 자세를 잡을 시간.
       let n = CAPTURE_COUNTIN_SEC;
-      btnRec.disabled = true;
+      countingIn = true;
+      labelInput.disabled = true;
       hintEl.textContent = `${n}…`;
+      document.getElementById('cap-counts').textContent = `${n}초 후 녹화 시작`;
+      syncRecBtn();
       countInId = setInterval(() => {
         n--;
-        if (n > 0) { hintEl.textContent = `${n}…`; return; }
+        if (n > 0) {
+          hintEl.textContent = `${n}…`;
+          document.getElementById('cap-counts').textContent = `${n}초 후 녹화 시작`;
+          return;
+        }
         clearInterval(countInId); countInId = null;
-        btnRec.disabled = false;
+        if (!bluetooth.isAnyLive()) {
+          countingIn = false;
+          labelInput.disabled = false;
+          hintEl.textContent = '판정 없음 · 원시 기록';
+          syncRecBtn();
+          document.getElementById('cap-counts').textContent = '연결이 끊겨 녹화를 시작하지 못했습니다';
+          app.showToast('카운트다운 중 유닛 연결이 끊겼습니다.');
+          return;
+        }
         beginRecording();
       }, 1000);
     };
@@ -1019,7 +1050,8 @@ const liveTab = (() => {
 
     btnBack.onclick = () => {
       if (recording && !confirm('녹화 중입니다. 중단하고 나갈까요?\n지금까지 찍힌 구간은 저장됩니다.')) return;
-      if (countInId) clearInterval(countInId);
+      if (countInId) { clearInterval(countInId); countInId = null; }
+      countingIn = false;
       if (recording) stopRecording();
       renderIdle();
     };
