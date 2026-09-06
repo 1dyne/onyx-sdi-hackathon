@@ -326,24 +326,18 @@ const liveTab = (() => {
 
     const capHint = document.createElement('div');
     capHint.style.cssText = 'font-size:12px;color:var(--text-dim);line-height:1.5;';
-    capHint.textContent = '동작을 먼저 수행하고 캡처하여 훈련으로 등록합니다.';
+    capHint.textContent = '판정 없이 동작을 연속 기록하고, 필요한 구간을 골라 훈련으로 등록합니다.';
     capSection.appendChild(capHint);
 
     const btnCap = document.createElement('button');
     btnCap.className = 'btn btn-ghost';
     btnCap.style.cssText = 'width:100%;margin-top:var(--gap-xs);';
-    btnCap.textContent = '📸  FREE CAPTURE 시작';
-    btnCap.onclick = () => renderFreeCapture();
+    btnCap.textContent = '●  FREE CAPTURE 시작 (연속 기록)';
+    btnCap.onclick = () => {
+      bindSessionCallbacks();
+      renderCapture();
+    };
     capSection.appendChild(btnCap);
-
-    /* 동작 캡처 — FREE CAPTURE가 한 순간을 집는다면 이쪽은 구간을
-       통째로 남긴다. 기준이 아직 없을 때 재료부터 모으는 경로다. */
-    const btnMotion = document.createElement('button');
-    btnMotion.className   = 'btn btn-ghost';
-    btnMotion.style.marginTop = 'var(--gap-xs)';
-    btnMotion.textContent = '🎬  동작 캡처 (연속 기록)';
-    btnMotion.onclick = () => { bindSessionCallbacks(); renderCapture(); };
-    capSection.appendChild(btnMotion);
 
     panel.appendChild(capSection);
     refreshConnectCard();
@@ -819,7 +813,7 @@ const liveTab = (() => {
     meter.className = 'cap-meter';
     meter.innerHTML =
       '<div class="cap-time" id="cap-time">00:00</div>' +
-      '<div class="cap-counts" id="cap-counts">대기 중</div>';
+      '<div class="cap-counts" id="cap-counts">동작 이름을 입력하세요</div>';
     panel.appendChild(meter);
 
     // 센서가 실제로 반응하는지 눈으로 보면서 찍을 수 있어야 한다.
@@ -866,8 +860,14 @@ const liveTab = (() => {
     panel.appendChild(takes);
 
     function syncRecBtn() {
-      btnRec.disabled = !recording && !label;
+      // REC는 누를 수 있게 둔다. disabled 버튼은 click 자체가 발생하지
+      // 않아 왜 녹화가 시작되지 않는지 안내할 방법이 없다.
+      btnRec.disabled = false;
       btnRec.title = (!recording && !label) ? '동작 이름을 먼저 입력하세요' : '';
+      if (!recording) {
+        const status = document.getElementById('cap-counts');
+        if (status) status.textContent = label ? 'REC를 눌러 시작하세요' : '동작 이름을 입력하세요';
+      }
     }
 
     function fmtMs(ms) {
@@ -947,6 +947,7 @@ const liveTab = (() => {
       btnMark.disabled = false;
       labelInput.disabled = true;
       hintEl.textContent = '● 녹화 중';
+      paintLive();
       tickId = setInterval(paintLive, 250);
       // 넣어두고 잊는 경우가 반드시 생긴다.
       autoStopId = setTimeout(() => {
@@ -968,7 +969,7 @@ const liveTab = (() => {
       labelInput.disabled = false;
       hintEl.textContent = '판정 없음 · 원시 기록';
       document.getElementById('cap-time').textContent = '00:00';
-      document.getElementById('cap-counts').textContent = '대기 중';
+      document.getElementById('cap-counts').textContent = 'REC를 눌러 시작하세요';
 
       if (!data || !data.feet.length) {
         app.showToast('수신된 샘플이 없어 저장하지 않았습니다 — 유닛 연결을 확인하세요.');
@@ -994,7 +995,11 @@ const liveTab = (() => {
 
     btnRec.onclick = () => {
       if (recording) { stopRecording(); return; }
-      if (!label) { labelInput.focus(); return; }
+      if (!label) {
+        labelInput.focus();
+        app.showToast('동작 이름을 입력한 뒤 REC를 눌러주세요.');
+        return;
+      }
       if (!bluetooth.isAnyLive()) {
         app.showToast('연결된 유닛이 없습니다 — 헤더의 L / R 버튼으로 연결하세요.');
         return;
