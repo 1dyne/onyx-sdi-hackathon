@@ -38,8 +38,8 @@
 /* ── Foot body fill ─────────────────────────────────────── */
 .foot-body,
 .foot-toe {
-  fill: #141410;
-  stroke: #2a2820;
+  fill: color-mix(in srgb, var(--bg-card) 78%, var(--border));
+  stroke: var(--border-hi);
   stroke-width: 1;
   transition: fill 200ms;
 }
@@ -47,8 +47,8 @@
 /* ── Pressure point dot ─────────────────────────────────── */
 .pp-dot {
   r: 9;
-  fill: #1a1a16;
-  stroke: #3a3830;
+  fill: var(--bg-input);
+  stroke: var(--border-hi);
   stroke-width: 1;
   transition: fill 120ms, stroke 120ms, opacity 120ms, transform 120ms, filter 120ms;
   transform-box: fill-box;
@@ -58,36 +58,36 @@
 
 /* States driven by JS (data-state attribute) */
 .pp-dot[data-state="inactive"] {
-  fill: #0f0f0c;
-  stroke: #242420;
+  fill: var(--color-inactive);
+  stroke: var(--border);
   opacity: 0.4;
 }
 .pp-dot[data-state="ok"] {
-  fill: #101a0a;
-  stroke: #5a7040;
+  fill: color-mix(in srgb, var(--color-ok) 18%, var(--bg-input));
+  stroke: var(--color-ok);
 }
 .pp-dot[data-state="alert-p"] {
-  fill: #160a0a;
-  stroke: #a04040;
+  fill: color-mix(in srgb, var(--color-alert-p) 18%, var(--bg-input));
+  stroke: var(--color-alert-p);
   animation: dot-pulse-p 600ms infinite;
 }
 .pp-dot[data-state="alert-n"] {
-  fill: #141008;
-  stroke: #9a8030;
+  fill: color-mix(in srgb, var(--color-alert-n) 18%, var(--bg-input));
+  stroke: var(--color-alert-n);
   animation: dot-pulse-n 600ms infinite;
 }
 
 /* Baseline-corrected capture heat scale. Inactive pressure is neutral;
    blue starts only after a real change is measured. */
 .pp-dot[data-state="heat"] { opacity: 1; transform: scale(var(--heat-scale,1)); stroke-width: 1.5; }
-.pp-dot[data-state="heat"][data-heat="0"] { fill:#20242a;stroke:#434a54;filter:none; }
-.pp-dot[data-state="heat"][data-heat="1"] { fill:#1976d2;stroke:#64b5f6;filter:drop-shadow(0 0 3px #1976d2); }
-.pp-dot[data-state="heat"][data-heat="2"] { fill:#20a464;stroke:#72d69c;filter:drop-shadow(0 0 4px #20a464); }
-.pp-dot[data-state="heat"][data-heat="3"] { fill:#e0c51c;stroke:#fff176;filter:drop-shadow(0 0 5px #e0c51c); }
-.pp-dot[data-state="heat"][data-heat="4"] { fill:#f07b16;stroke:#ffb15e;filter:drop-shadow(0 0 6px #f07b16); }
-.pp-dot[data-state="heat"][data-heat="5"] { fill:#e42b2b;stroke:#ff7777;filter:drop-shadow(0 0 8px #e42b2b); }
+.pp-dot[data-state="heat"][data-heat="0"] { fill:var(--heat-0);stroke:var(--border-hi);filter:none; }
+.pp-dot[data-state="heat"][data-heat="1"] { fill:var(--heat-1);stroke:var(--heat-ring);filter:drop-shadow(0 1px 2px color-mix(in srgb,var(--heat-1) 45%,transparent)); }
+.pp-dot[data-state="heat"][data-heat="2"] { fill:var(--heat-2);stroke:var(--heat-ring);filter:drop-shadow(0 1px 2px color-mix(in srgb,var(--heat-2) 45%,transparent)); }
+.pp-dot[data-state="heat"][data-heat="3"] { fill:var(--heat-3);stroke:var(--heat-ring);filter:drop-shadow(0 1px 2px color-mix(in srgb,var(--heat-3) 45%,transparent)); }
+.pp-dot[data-state="heat"][data-heat="4"] { fill:var(--heat-4);stroke:var(--heat-ring);filter:drop-shadow(0 1px 2px color-mix(in srgb,var(--heat-4) 45%,transparent)); }
+.pp-dot[data-state="heat"][data-heat="5"] { fill:var(--heat-5);stroke:var(--heat-ring);filter:drop-shadow(0 1px 2px color-mix(in srgb,var(--heat-5) 45%,transparent)); }
 
-.cop-dot { fill:#fff;stroke:#101010;stroke-width:2;filter:drop-shadow(0 0 4px #fff);pointer-events:none; }
+.cop-dot { fill:var(--cop-fill);stroke:var(--cop-stroke);stroke-width:2;filter:drop-shadow(0 1px 2px color-mix(in srgb,var(--cop-fill) 35%,transparent));pointer-events:none; }
 
 /* Config mode: clickable/selectable.
    r mirrors PP_DOT_R_CONFIG / PP_HIT_R in constants.js — the CSS
@@ -109,8 +109,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 .foot-svg.config-mode .pp-dot[data-selected="true"] {
-  fill: #1a1008;
-  stroke: #9a8030;
+  fill: color-mix(in srgb, var(--color-alert-n) 22%, var(--bg-input));
+  stroke: var(--color-alert-n);
   stroke-width: 1.5;
 }
 .foot-svg.config-mode .pp-dot:hover {
@@ -143,7 +143,7 @@
   user-select: none;
   letter-spacing: 0.04em;
 }
-.pp-id-text[data-selected="true"] { fill:#fff;font-size:8px;font-weight:700; }
+.pp-id-text[data-selected="true"] { fill:var(--text-bright);font-size:8px;font-weight:700; }
 
 /* ── Pulse animations ───────────────────────────────────── */
 @keyframes dot-pulse-p {

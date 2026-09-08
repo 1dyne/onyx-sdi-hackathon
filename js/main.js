@@ -92,7 +92,7 @@
 
   /* ── Theme toggle ───────────────────────────────────────── */
   function initTheme() {
-    const saved = localStorage.getItem('onyxSDI_theme') || 'dark';
+    const saved = localStorage.getItem('onyxSDI_theme') || 'light';
     document.documentElement.setAttribute('data-theme', saved);
     updateThemeBtn(saved);
   }
@@ -103,7 +103,7 @@
   }
 
   function toggleTheme() {
-    const cur  = document.documentElement.getAttribute('data-theme') || 'dark';
+    const cur  = document.documentElement.getAttribute('data-theme') || 'light';
     const next = cur === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('onyxSDI_theme', next);

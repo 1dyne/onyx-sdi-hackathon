@@ -1368,10 +1368,10 @@ input[type=range] {
 
 /* 4채널을 색으로 구분. 파형이 겹치므로 채도보다 명도 차이를 준다. */
 .trim-ch      { stroke: none; opacity: 0.62; }
-.trim-ch.ch1  { fill: #6fa8dc; }
-.trim-ch.ch2  { fill: #c9a227; }
-.trim-ch.ch3  { fill: #7fb069; }
-.trim-ch.ch4  { fill: #c07a5a; }
+.trim-ch.ch1  { fill: var(--heat-1); }
+.trim-ch.ch2  { fill: var(--heat-3); }
+.trim-ch.ch3  { fill: var(--heat-2); }
+.trim-ch.ch4  { fill: var(--heat-4); }
 
 .trim-readout {
   font-family: var(--font-mono);
@@ -1442,4 +1442,4 @@ input[type=range] {
 .step-overlay { min-height:105px;background:var(--bg-input);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px; }
 .step-overlay svg { width:100%;height:105px;display:block; }
 .step-curve { fill:none;stroke-width:1.5;opacity:.72;vector-effect:non-scaling-stroke; }
-.step-curve.step-0{stroke:#1976d2}.step-curve.step-1{stroke:#20a464}.step-curve.step-2{stroke:#e0c51c}.step-curve.step-3{stroke:#f07b16}.step-curve.step-4{stroke:#e42b2b}
+.step-curve.step-0{stroke:var(--heat-1)}.step-curve.step-1{stroke:var(--heat-2)}.step-curve.step-2{stroke:var(--heat-3)}.step-curve.step-3{stroke:var(--heat-4)}.step-curve.step-4{stroke:var(--heat-5)}

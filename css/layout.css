@@ -30,9 +30,9 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--gap-md);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--header-border);
   flex-shrink: 0;
-  background: var(--bg);
+  background: var(--header-bg);
   z-index: 10;
 }
 
@@ -42,9 +42,9 @@ html, body {
   font-size: 18px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text);
+  color: var(--header-text);
 }
-.app-logo .accent { color: var(--color-accent-text); }
+.app-logo .accent { color: var(--header-text); }
 
 .app-subtitle {
   display: block;
@@ -53,7 +53,7 @@ html, body {
   font-weight: 400;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--header-subtext);
   margin-top: 1px;
   line-height: 1;
 }
@@ -190,9 +190,22 @@ html, body {
   font-family: var(--font-mono);
   font-size: 8px;
   letter-spacing: 0.1em;
-  color: var(--text-muted);
+  color: var(--header-subtext);
   line-height: 1;
   white-space: nowrap;
+}
+
+.app-header .btn-foot,
+.app-header .btn-icon {
+  background: color-mix(in srgb, var(--header-text) 6%, transparent);
+  border-color: var(--header-control);
+  color: var(--header-text);
+}
+.app-header .btn-foot:hover,
+.app-header .btn-icon:hover {
+  background: color-mix(in srgb, var(--header-text) 12%, transparent);
+  border-color: var(--header-subtext);
+  color: var(--header-text);
 }
 
 /* Dev mode is loud on purpose — it must never be left on by accident. */

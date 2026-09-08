@@ -5,20 +5,20 @@
   --font-ui:   'Rajdhani', sans-serif;
   --font-mono: 'Share Tech Mono', monospace;
 
-  /* Status colors — olive-green / amber / dark-red palette */
-  --color-ok:       #5a7040;
-  --color-alert-p:  #a04040;
-  --color-alert-n:  #9a8030;
-  --color-inactive: #1e1e1a;
+  /* Status colors — olive-green / amber / muted-red palette */
+  --color-ok:       #668a68;
+  --color-alert-p:  #a95861;
+  --color-alert-n:  #ac934c;
+  --color-inactive: #d9ddd4;
 
   /* Accent: active-tab indicator / crosshair highlight */
-  --color-accent:      #7a7060;
-  --color-accent-text: #b0aa90;
+  --color-accent:      #506c4e;
+  --color-accent-text: #3b523a;
 
   /* Drill type colors — desaturated / military */
-  --color-type-static: #4878a0;
-  --color-type-gait:   #9a7840;
-  --color-type-custom: #785098;
+  --color-type-static: #5c7f91;
+  --color-type-gait:   #ac934c;
+  --color-type-custom: #7a6d86;
 
   --gap-xs:  4px;
   --gap-sm:  8px;
@@ -34,6 +34,7 @@
 /* ── Dark theme (default) ──────────────────────────────── */
 :root,
 [data-theme="dark"] {
+  --bg-base:    #080808;
   --bg:         #080808;
   --bg-card:    #0d0d0c;
   --bg-input:   #0c0c0a;
@@ -44,27 +45,66 @@
   --text-muted: #484840;
   --border:     #1e1e1c;
   --border-hi:  #2a2a26;
+
+  --header-bg:       #080808;
+  --header-text:     #ddd8c0;
+  --header-subtext:  #888078;
+  --header-border:   #1e1e1c;
+  --header-control:  #2a2a26;
+
+  --color-ok:       #5a7040;
+  --color-alert-p:  #a04040;
+  --color-alert-n:  #9a8030;
+  --color-inactive: #1e1e1a;
+  --color-accent:      #7a7060;
+  --color-accent-text: #b0aa90;
+
+  --heat-0: #20242a;
+  --heat-1: #1976d2;
+  --heat-2: #20a464;
+  --heat-3: #e0c51c;
+  --heat-4: #f07b16;
+  --heat-5: #e42b2b;
+  --heat-ring: #f2eee3;
+  --cop-fill: #ffffff;
+  --cop-stroke: #101010;
 }
 
 /* ── Light theme ───────────────────────────────────────── */
 [data-theme="light"] {
-  --bg:         #b8b2a0;
-  --bg-card:    #aca690;
-  --bg-input:   #c4beaa;
-  --bg-hover:   #b0aa9a;
-  --text:       #0d0d0c;
-  --text-bright:#08080a;
-  --text-dim:   #3c3830;
-  --text-muted: #6a6458;
-  --border:     #8a8470;
-  --border-hi:  #6a6455;
+  --bg-base:    #e8e6dc;
+  --bg:         #e8e6dc;
+  --bg-card:    #f6f4ec;
+  --bg-input:   #eeece3;
+  --bg-hover:   #dfe3d9;
+  --text:       #22281f;
+  --text-bright:#192017;
+  --text-dim:   #505b4d;
+  --text-muted: #6f796b;
+  --border:     #b9beb1;
+  --border-hi:  #899383;
 
-  /* accent overrides: dark ink so it reads on the warm-tan bg */
-  --color-accent:      #2a2820;
-  --color-accent-text: #0d0d0c;   /* same as --text → 'SDI' matches title */
+  --header-bg:       #3b523a;
+  --header-text:     #f7f4e9;
+  --header-subtext:  #c9d3c4;
+  --header-border:   #263827;
+  --header-control:  #7f927b;
 
-  /* status colors: deepen them so they don't wash out on tan */
-  --color-ok:       #3a5828;
-  --color-alert-p:  #7a2828;
-  --color-alert-n:  #6a5818;
+  --color-accent:      #506c4e;
+  --color-accent-text: #3b523a;
+  --color-ok:       #668a68;
+  --color-alert-p:  #a95861;
+  --color-alert-n:  #ac934c;
+  --color-inactive: #d9ddd4;
+
+  /* Pressure scale: familiar blue→red order in the same muted military tone. */
+  --heat-0: #d9ddd4;
+  --heat-1: #5c7f91;
+  --heat-2: #668a68;
+  --heat-3: #ac934c;
+  --heat-4: #bd774a;
+  --heat-5: #af5657;
+  --heat-ring: #fffef9;
+  --cop-fill: #22281f;
+  --cop-stroke: #fffef9;
 }
