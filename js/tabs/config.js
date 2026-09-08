@@ -12,9 +12,11 @@ const configTab = (() => {
       title:              '',
       type:               'static',
       points:             [],
+      channels:           [],
       showPlacementAlert: true,
       // FREE CAPTURE snapshot, per foot: { left: {values, imu}|null, right: ... }
       captured:           null,
+      baseline:           null,
     };
   }
 
@@ -59,13 +61,13 @@ const configTab = (() => {
      was captured first so a one-foot capture still yields a usable
      drill. */
   function makeCapturedPoint(pid) {
-    const idx       = parseInt(pid.slice(1)) - 1;
+    const idx       = draft.channels.indexOf(pid);
     const reference = { left: null, right: null };
 
     for (const f of FOOT_IDS) {
       const snap = draft.captured?.[f];
       if (!snap) continue;
-      const v = Math.round(snap.values[idx] ?? 0);
+      const v = Math.round(Math.max(0, (snap.values[idx] ?? 0) - (draft.baseline?.[f]?.[idx] ?? 0)));
       if (v > 0) reference[f] = v;
     }
 
@@ -875,8 +877,8 @@ const configTab = (() => {
       const lines = FOOT_IDS.map(f => {
         const snap = draft.captured[f];
         if (!snap) return `<span style="opacity:.5;">${FOOT_LABEL[f]} — 미연결</span>`;
-        const fsr = POINT_IDS.slice(0, 4)
-          .map(pid => `${pid}:${Math.round(snap.values[parseInt(pid.slice(1)) - 1] ?? 0)}`)
+        const fsr = draft.channels
+          .map((pid, ch) => `CH${ch + 1} ${pid}:${Math.round(snap.values[ch] ?? 0)}`)
           .join('  ');
         return `${FOOT_LABEL[f]}  ${fsr}  YAW:${(snap.imu?.yaw ?? 0).toFixed(1)}°`;
       });
@@ -987,7 +989,7 @@ const configTab = (() => {
        judging, log) reads it for both feet, so the two silhouettes are
        two views of one selection rather than two independent ones —
        tapping either mirrors to the other. */
-    const selected = new Set(draft.points.map(p => p.id));
+    const selected = [...(draft.channels.length ? draft.channels : draft.points.map(p => p.id))];
     const grid = document.createElement('div');
     grid.className = 'foot-pick-grid';
 
@@ -1010,19 +1012,23 @@ const configTab = (() => {
     function paint() {
       svgs.forEach(svg => {
         svg.querySelectorAll('.pp-dot').forEach(dot => {
-          const on = selected.has(dot.dataset.id);
+          const ch = selected.indexOf(dot.dataset.id);
+          const on = ch >= 0;
           dot.dataset.selected = on ? 'true' : 'false';
           dot.dataset.state    = on ? 'ok' : 'inactive';
+          dot.dataset.channel  = on ? String(ch + 1) : '';
         });
       });
-      countEl.innerHTML = `<span class="num ${selected.size === REQUIRED_POINTS ? 'full' : ''}">${selected.size}</span> / ${REQUIRED_POINTS} 선택됨`;
+      countEl.innerHTML = `<span class="num ${selected.length === REQUIRED_POINTS ? 'full' : ''}">${selected.length}</span> / ${REQUIRED_POINTS} 선택됨` +
+        (selected.length ? `<br>${selected.map((pid, i) => `CH${i + 1} → ${pid} ${PRESSURE_POINTS[pid].label}`).join(' · ')}` : '');
       countEl.style.color = '';
     }
 
     function toggle(pid) {
-      if (selected.has(pid))                         selected.delete(pid);
-      else if (selected.size < REQUIRED_POINTS)      selected.add(pid);
-      else return;                                   // already at four
+      const i = selected.indexOf(pid);
+      if (i >= 0) selected.splice(i, 1);
+      else if (selected.length < REQUIRED_POINTS) selected.push(pid);
+      else return;
       paint();
     }
 
@@ -1056,16 +1062,18 @@ const configTab = (() => {
     btnNext.className = 'btn btn-primary';
     btnNext.textContent = '다음 — 압점 설정';
     btnNext.onclick = () => {
-      if (selected.size !== REQUIRED_POINTS) {
+      if (selected.length !== REQUIRED_POINTS) {
         countEl.style.color = 'var(--color-alert-p)';
         return;
       }
       const prev = new Map(draft.points.map(p => [p.id, p]));
-      draft.points = [...selected].map(pid => {
+      draft.channels = [...selected];
+      draft.points = selected.map((pid, channel) => {
         if (prev.has(pid)) return prev.get(pid);
         if (draft.captured) return makeCapturedPoint(pid);
-        return makeDefaultPoint(pid);
+        return { ...makeDefaultPoint(pid), channel };
       });
+      draft.points.forEach((pt, channel) => { pt.channel = channel; });
       step = 3;
       renderStep3();
     };
@@ -1306,6 +1314,7 @@ const configTab = (() => {
       title:              drill.title,
       type:               drill.type,
       points:             drill.points.map(p => ({ ...makeDefaultPoint(p.id), ...p })),
+      channels:           [...(drill.channels || drill.points.slice().sort((a,b) => Number(a.id.slice(1))-Number(b.id.slice(1))).map(p => p.id))],
       showPlacementAlert: drill.showPlacementAlert !== false,
     };
     step = 1;
@@ -1336,6 +1345,9 @@ const configTab = (() => {
         left:  snapshot?.left  ? { values: [...snapshot.left.values],  imu: { ...snapshot.left.imu } }  : null,
         right: snapshot?.right ? { values: [...snapshot.right.values], imu: { ...snapshot.right.imu } } : null,
       };
+      draft.channels = [...(snapshot?.channels || DEFAULT_CAPTURE_CHANNELS)];
+      draft.baseline = snapshot?.baseline || null;
+      draft.points = draft.channels.map((pid, channel) => ({ ...makeCapturedPoint(pid), channel }));
       step = 1;
       renderStep1();
     },

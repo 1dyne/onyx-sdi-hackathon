@@ -9,9 +9,26 @@ const PRESSURE_POINTS = {
   P5: { id:'P5', name:'Heel-L',    label:'뒷꿈치 내측', defaultDirection:'negative', svgX:132, svgY:326 }, // inner heel pad
   P6: { id:'P6', name:'Heel',      label:'뒷꿈치 중앙', defaultDirection:'positive', svgX:98,  svgY:352 }, // center heel pad
   P7: { id:'P7', name:'Heel-M',    label:'뒷꿈치 외측', defaultDirection:'positive', svgX:64,  svgY:326 }, // outer heel pad
+  P8: { id:'P8', name:'Toes 2-5',  label:'둘째~다섯째 발가락', defaultDirection:'positive', svgX:105, svgY:48  },
+  P9: { id:'P9', name:'Met-2',      label:'둘째 중족골두', defaultDirection:'positive', svgX:132, svgY:103 },
+  P10:{ id:'P10',name:'Met-3',      label:'셋째 중족골두', defaultDirection:'positive', svgX:108, svgY:101 },
+  P11:{ id:'P11',name:'Met-4',      label:'넷째 중족골두', defaultDirection:'positive', svgX:84,  svgY:101 },
+  P12:{ id:'P12',name:'Lat Midfoot',label:'외측 중족부', defaultDirection:'positive', svgX:58,  svgY:215 },
 };
 
-const POINT_IDS = ['P1','P2','P3','P4','P5','P6','P7'];
+const POINT_IDS = ['P1','P2','P3','P4','P5','P6','P7','P8','P9','P10','P11','P12'];
+
+/* Physical CH1-CH4 order is deliberately separate from point ids.
+   The default follows a representative gait path: heel -> lateral
+   forefoot -> medial forefoot -> hallux. */
+const CAPTURE_PRESETS = {
+  gait:     { label:'보행',     channels:['P6','P3','P2','P1'] },
+  static:   { label:'정적 균형', channels:['P2','P11','P3','P6'] },
+  arch:     { label:'아치',     channels:['P2','P4','P12','P6'] },
+  rearfoot: { label:'후족부',   channels:['P5','P7','P2','P3'] },
+};
+const DEFAULT_CAPTURE_CHANNELS = CAPTURE_PRESETS.gait.channels;
+const LEGACY_CAPTURE_CHANNELS = ['P1','P2','P3','P4'];
 
 /* ── Pressure-dot geometry (viewBox units, 0 0 200 400) ────
    The tightest pair on the silhouette is the heel row: P5→P6 and
@@ -28,10 +45,10 @@ const PP_DOT_R_CONFIG = 16;  // CONFIG — visible selectable dot
 const PP_HIT_R        = 21;  // CONFIG — invisible touch target
 
 /* ── Point → FSR channel ───────────────────────────────────
-   The units carry FOUR FSR channels; the silhouette offers SEVEN
+   The units carry FOUR FSR channels; the silhouette offers TWELVE
    candidate positions. A drill names the four positions the sensors
    are actually mounted at, and those map to channels 1-4 in
-   anatomical order (P1 before P2 before … P7).
+   explicit physical CH1-CH4 order.
 
    Before this existed the code indexed values[] as P{n} → values[n-1],
    which silently read roll/pitch/yaw as pressure for any drill using
@@ -43,22 +60,31 @@ const PP_HIT_R        = 21;  // CONFIG — invisible touch target
    which is 80 lookups a second with both units streaming. */
 const _channelCache = new WeakMap();
 
-function channelMap(points) {
-  if (!points) return null;
-  let m = _channelCache.get(points);
+function channelMap(owner) {
+  if (!owner) return null;
+  const points = Array.isArray(owner) ? owner : (owner.points || []);
+  let m = _channelCache.get(owner);
   if (m) return m;
   m = new Map();
-  points.map(p => p.id).sort().forEach((id, i) => m.set(id, i));
-  _channelCache.set(points, m);
+  const explicit = Array.isArray(owner.channels) ? owner.channels : null;
+  if (explicit) explicit.forEach((id, i) => m.set(id, i));
+  else if (points.some(p => Number.isInteger(p.channel))) {
+    points.forEach(p => { if (Number.isInteger(p.channel)) m.set(p.id, p.channel); });
+  } else {
+    // Compatibility for drills saved before explicit channel mapping.
+    points.map(p => p.id).sort((a,b) => Number(a.slice(1)) - Number(b.slice(1)))
+      .forEach((id, i) => m.set(id, i));
+  }
+  _channelCache.set(owner, m);
   return m;
 }
 
 /* Channel index for one point id, or -1 if the drill does not use it.
    `points` is a drill's points array; pass null for the raw P1-P4
    layout used by FREE CAPTURE. */
-function channelOf(points, pid) {
-  if (!points) return parseInt(pid.slice(1)) - 1;
-  const m = channelMap(points);
+function channelOf(owner, pid) {
+  if (!owner) return DEFAULT_CAPTURE_CHANNELS.indexOf(pid);
+  const m = channelMap(owner);
   return m.has(pid) ? m.get(pid) : -1;
 }
 
