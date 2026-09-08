@@ -50,7 +50,9 @@
   fill: #1a1a16;
   stroke: #3a3830;
   stroke-width: 1;
-  transition: fill 150ms, stroke 150ms, opacity 150ms;
+  transition: fill 120ms, stroke 120ms, opacity 120ms, transform 120ms, filter 120ms;
+  transform-box: fill-box;
+  transform-origin: center;
   cursor: default;
 }
 
@@ -75,13 +77,25 @@
   animation: dot-pulse-n 600ms infinite;
 }
 
+/* Baseline-corrected capture heat scale. Inactive pressure is neutral;
+   blue starts only after a real change is measured. */
+.pp-dot[data-state="heat"] { opacity: 1; transform: scale(var(--heat-scale,1)); stroke-width: 1.5; }
+.pp-dot[data-state="heat"][data-heat="0"] { fill:#20242a;stroke:#434a54;filter:none; }
+.pp-dot[data-state="heat"][data-heat="1"] { fill:#1976d2;stroke:#64b5f6;filter:drop-shadow(0 0 3px #1976d2); }
+.pp-dot[data-state="heat"][data-heat="2"] { fill:#20a464;stroke:#72d69c;filter:drop-shadow(0 0 4px #20a464); }
+.pp-dot[data-state="heat"][data-heat="3"] { fill:#e0c51c;stroke:#fff176;filter:drop-shadow(0 0 5px #e0c51c); }
+.pp-dot[data-state="heat"][data-heat="4"] { fill:#f07b16;stroke:#ffb15e;filter:drop-shadow(0 0 6px #f07b16); }
+.pp-dot[data-state="heat"][data-heat="5"] { fill:#e42b2b;stroke:#ff7777;filter:drop-shadow(0 0 8px #e42b2b); }
+
+.cop-dot { fill:#fff;stroke:#101010;stroke-width:2;filter:drop-shadow(0 0 4px #fff);pointer-events:none; }
+
 /* Config mode: clickable/selectable.
    r mirrors PP_DOT_R_CONFIG / PP_HIT_R in constants.js — the CSS
    geometry property overrides the presentation attribute, so these
    are the values that actually render. */
 .foot-svg.config-mode .pp-dot {
   cursor: pointer;
-  r: 16;
+  r: 12;
   stroke-width: 1.5;
   transition: none;  /* 클릭 즉시 반응 */
 }
@@ -129,6 +143,7 @@
   user-select: none;
   letter-spacing: 0.04em;
 }
+.pp-id-text[data-selected="true"] { fill:#fff;font-size:8px;font-weight:700; }
 
 /* ── Pulse animations ───────────────────────────────────── */
 @keyframes dot-pulse-p {

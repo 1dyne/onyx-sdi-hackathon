@@ -24,6 +24,8 @@ const liveTab = (() => {
   let rafId   = null;
   let mode    = 'idle';      // idle | ready | active | capture
   let currentDrill = null;
+  let currentChannels = [...DEFAULT_CAPTURE_CHANNELS];
+  let currentBaseline = { left:[0,0,0,0], right:[0,0,0,0] };
 
   /* ── SVG foot builder ───────────────────────────────────────
      The pressure-point coordinates in constants.js describe a LEFT
@@ -62,10 +64,10 @@ const liveTab = (() => {
       'C 56 314 62 336 74 356',           // outer heel
       'C 86 372 102 382 118 380',         // heel bottom curve
       'C 134 378 148 366 154 350',        // inner heel
-      'C 160 332 162 310 162 286',        // inner mid
-      'C 162 260 160 234 158 210',        // inner arch — nearly vertical (medial arch)
-      'C 156 186 158 162 160 138',        // inner forefoot
-      'C 162 116 160 96 156 80',          // inner ball / 1st metatarsal
+      'C 158 332 155 306 148 286',        // inner heel taper
+      'C 141 265 128 250 130 226',        // medial arch indentation
+      'C 132 198 151 178 158 146',        // arch opens into forefoot
+      'C 164 120 162 96 156 80',          // inner ball / 1st metatarsal
       'C 153 70 152 66 152 66',           // inner end of toe-row base (big-toe side)
       'C 136 66 118 66 100 66',           // across toe-row base (inner → center)
       'C 84 66 76 66 68 68',             // across toe-row base (center → outer)
@@ -108,6 +110,16 @@ const liveTab = (() => {
       shapes.appendChild(dot);
     });
 
+    if (!configMode) {
+      const cop = document.createElementNS(ns, 'circle');
+      cop.setAttribute('class', 'cop-dot');
+      cop.setAttribute('cx', 100);
+      cop.setAttribute('cy', 350);
+      cop.setAttribute('r', 6);
+      cop.style.display = 'none';
+      shapes.appendChild(cop);
+    }
+
     /* Config mode gets an invisible, larger concentric target on top of
        every dot. The visible circle has to stay small enough that the
        three heel points do not run into each other, but a finger needs
@@ -136,6 +148,7 @@ const liveTab = (() => {
       const pt  = PRESSURE_POINTS[pid];
       const txt = document.createElementNS(ns, 'text');
       txt.setAttribute('class', 'pp-id-text');
+      txt.setAttribute('data-id', pid);
       txt.setAttribute('x', mirror ? 200 - pt.svgX : pt.svgX);
       txt.setAttribute('y', pt.svgY);
       txt.textContent = pid;
@@ -333,7 +346,7 @@ const liveTab = (() => {
     btnCap.className = 'btn btn-ghost';
     btnCap.style.cssText = 'width:100%;margin-top:var(--gap-xs);';
     btnCap.textContent = '📸  FREE CAPTURE 시작';
-    btnCap.onclick = () => renderFreeCapture();
+    btnCap.onclick = () => renderCapturePlacement('free');
     capSection.appendChild(btnCap);
 
     /* 동작 캡처 — FREE CAPTURE가 한 순간을 집는다면 이쪽은 구간을
@@ -342,7 +355,7 @@ const liveTab = (() => {
     btnMotion.className   = 'btn btn-ghost';
     btnMotion.style.marginTop = 'var(--gap-xs)';
     btnMotion.textContent = '🎬  MOTION CAPTURE (연속 기록)';
-    btnMotion.onclick = () => { bindSessionCallbacks(); renderCapture(); };
+    btnMotion.onclick = () => renderCapturePlacement('motion');
     capSection.appendChild(btnMotion);
 
     panel.appendChild(capSection);
@@ -757,9 +770,143 @@ const liveTab = (() => {
      제각각이라 고정 길이로 자르면 동작이 잘린다. 다만 넣어두고 잊는
      경우가 반드시 생기므로 10분에서 자동으로 멈춘다.
   ══════════════════════════════════════════════════════════ */
-  function renderCapture() {
+  function renderCapturePlacement(kind) {
+    mode = 'placement';
+    currentDrill = null;
+    panel.innerHTML = '';
+    let channels = [...DEFAULT_CAPTURE_CHANNELS];
+
+    const heading = document.createElement('div');
+    heading.className = 'section-heading';
+    heading.textContent = `${kind === 'motion' ? 'MOTION' : 'FREE'} CAPTURE — FSR 배치`;
+    panel.appendChild(heading);
+
+    const hint = document.createElement('div');
+    hint.className = 'ready-banner';
+    hint.textContent = '실제 CH1 → CH4 순서대로 압점 4개를 선택하세요. 양발은 같은 위치로 적용됩니다.';
+    panel.appendChild(hint);
+
+    const presets = document.createElement('div');
+    presets.className = 'cap-chips';
+    Object.values(CAPTURE_PRESETS).forEach(preset => {
+      const b = document.createElement('button');
+      b.className = 'coach-chip cap-chip-btn';
+      b.textContent = preset.label;
+      b.onclick = () => { channels = [...preset.channels]; paint(); };
+      presets.appendChild(b);
+    });
+    panel.appendChild(presets);
+
+    const grid = document.createElement('div');
+    grid.className = 'foot-pick-grid';
+    const svgs = FOOT_IDS.map(foot => {
+      const wrap = document.createElement('div');
+      wrap.className = 'foot-wrap';
+      const lbl = document.createElement('span'); lbl.className='foot-label'; lbl.textContent=FOOT_LABEL[foot];
+      const svg = buildFootSVG({configMode:true, foot});
+      wrap.appendChild(lbl); wrap.appendChild(svg); grid.appendChild(wrap);
+      return svg;
+    });
+    panel.appendChild(grid);
+
+    const mapping = document.createElement('div');
+    mapping.className = 'pp-select-count';
+    panel.appendChild(mapping);
+
+    function paint() {
+      svgs.forEach(svg => {
+        svg.querySelectorAll('.pp-dot').forEach(dot => {
+          const ch = channels.indexOf(dot.dataset.id);
+          dot.dataset.selected = ch >= 0 ? 'true' : 'false';
+          dot.dataset.state = ch >= 0 ? 'ok' : 'inactive';
+        });
+        svg.querySelectorAll('.pp-id-text').forEach(txt => {
+          const ch = channels.indexOf(txt.dataset.id);
+          txt.textContent = ch >= 0 ? `C${ch + 1}` : txt.dataset.id;
+          txt.dataset.selected = ch >= 0 ? 'true' : 'false';
+        });
+      });
+      mapping.innerHTML = channels.length
+        ? channels.map((pid,i) => `<span class="channel-map-chip">CH${i+1} → ${pid} ${PRESSURE_POINTS[pid].label}</span>`).join('')
+        : 'CH1부터 선택하세요';
+    }
+
+    svgs.forEach(svg => svg.querySelectorAll('.pp-hit').forEach(hit => {
+      hit.onclick = () => {
+        const i = channels.indexOf(hit.dataset.id);
+        if (i >= 0) channels.splice(i,1);
+        else if (channels.length < REQUIRED_POINTS) channels.push(hit.dataset.id);
+        paint();
+      };
+    }));
+
+    const actions = document.createElement('div'); actions.className='live-actions'; actions.style.gridTemplateColumns='1fr 1fr';
+    const back = document.createElement('button'); back.className='btn btn-ghost'; back.textContent='← 취소'; back.onclick=renderIdle;
+    const next = document.createElement('button'); next.className='btn btn-ok'; next.textContent='다음 — BASELINE';
+    next.onclick = () => {
+      if (channels.length !== REQUIRED_POINTS) { app.showToast('FSR 위치를 CH1부터 4개 선택하세요.'); return; }
+      renderBaselineSetup(kind, channels);
+    };
+    actions.appendChild(back); actions.appendChild(next); panel.appendChild(actions);
+    paint();
+  }
+
+  function renderBaselineSetup(kind, channels) {
+    mode = 'baseline';
+    currentChannels = [...channels];
+    currentBaseline = {left:[0,0,0,0], right:[0,0,0,0]};
+    panel.innerHTML = '';
+
+    const heading = document.createElement('div'); heading.className='section-heading'; heading.textContent='BASELINE (영점)';
+    panel.appendChild(heading);
+    const guide = document.createElement('div'); guide.className='ready-banner';
+    guide.textContent='장비를 착용한 뒤 발에 힘을 주지 않은 상태를 유지하세요. 1.5초 동안 각 채널의 중앙값을 영점으로 저장합니다.';
+    panel.appendChild(guide);
+    panel.appendChild(buildConnectCard());
+
+    const status = document.createElement('div'); status.className='card card-sm baseline-status'; status.textContent='측정 준비'; panel.appendChild(status);
+    const actions = document.createElement('div'); actions.className='live-actions'; actions.style.gridTemplateColumns='1fr 1fr';
+    const back = document.createElement('button'); back.className='btn btn-ghost'; back.textContent='← 배치 수정';
+    back.onclick=()=>{session.stopFreeCapture();renderCapturePlacement(kind);};
+    const measure = document.createElement('button'); measure.className='btn btn-ok'; measure.textContent='1.5초 BASELINE 측정';
+    actions.appendChild(back); actions.appendChild(measure); panel.appendChild(actions);
+
+    bindSessionCallbacks();
+    session.startFreeCapture();
+    refreshConnectCard();
+
+    measure.onclick = () => {
+      if (!bluetooth.isAnyLive()) { app.showToast('먼저 L 또는 R 유닛을 연결하세요.'); return; }
+      measure.disabled = true; back.disabled = true;
+      const samples = {left:[],right:[]}; let ticks=0;
+      status.textContent='측정 중… 힘을 빼고 그대로 유지하세요';
+      const id=setInterval(()=>{
+        ticks++;
+        FOOT_IDS.forEach(f=>{
+          if (session.hasFoot(f)) samples[f].push([...session.currentValues(f).slice(0,4)]);
+        });
+        status.textContent=`측정 중 ${Math.min(100,Math.round(ticks/15*100))}%`;
+        if(ticks<15)return;
+        clearInterval(id);
+        const joined = FOOT_IDS.filter(f=>samples[f].length);
+        if(!joined.length){
+          status.textContent='데이터가 들어오지 않았습니다. 연결 상태를 확인하고 다시 측정하세요.';
+          measure.disabled=false; back.disabled=false;
+          return;
+        }
+        FOOT_IDS.forEach(f=>{ if(samples[f].length) currentBaseline[f]=pressureEngine.baselineFromSamples(samples[f]); });
+        session.stopFreeCapture();
+        status.textContent=FOOT_IDS.map(f=>`${FOOT_LABEL[f]} ${currentBaseline[f].join(' / ')}`).join(' · ');
+        setTimeout(()=> kind==='motion' ? renderCapture(channels,currentBaseline) : renderFreeCapture(channels,currentBaseline), 350);
+      },100);
+    };
+  }
+
+  function renderCapture(channels = DEFAULT_CAPTURE_CHANNELS, baseline = null) {
     mode = 'motioncap';
     currentDrill = null;
+    currentChannels = [...channels];
+    currentBaseline = baseline || {left:[0,0,0,0],right:[0,0,0,0]};
     panel.innerHTML = '';
 
     let recording  = false;
@@ -781,6 +928,10 @@ const liveTab = (() => {
     hdr.appendChild(titleEl);
     hdr.appendChild(hintEl);
     panel.appendChild(hdr);
+
+    const channelRow=document.createElement('div'); channelRow.className='capture-channel-row';
+    channelRow.innerHTML=currentChannels.map((pid,i)=>`<span class="channel-map-chip">CH${i+1} → ${pid} ${PRESSURE_POINTS[pid].label}</span>`).join('');
+    panel.appendChild(channelRow);
 
     /* ── 라벨 ── */
     const labelCard = document.createElement('div');
@@ -826,8 +977,13 @@ const liveTab = (() => {
     // 센서가 실제로 반응하는지 눈으로 보면서 찍을 수 있어야 한다.
     const feetRow = document.createElement('div');
     feetRow.className = 'feet-row';
-    FOOT_IDS.forEach(f => feetRow.appendChild(buildFootColumn(f, new Set(POINT_IDS.slice(0, 4)))));
+    FOOT_IDS.forEach(f => feetRow.appendChild(buildFootColumn(f, new Set(currentChannels))));
     panel.appendChild(feetRow);
+
+    const balance = document.createElement('div');
+    balance.id='motion-balance'; balance.className='motion-balance card card-sm';
+    balance.innerHTML='<div><span>L/R</span><strong id="motion-lr">50 / 50</strong></div><div><span>FORE/REAR</span><strong id="motion-fr">50 / 50</strong></div><small>● = 4점 기반 상대 압력중심(COP) 추정</small>';
+    panel.appendChild(balance);
 
     /* ── 컨트롤 ── */
     const actions = document.createElement('div');
@@ -930,7 +1086,7 @@ const liveTab = (() => {
         };
 
         row.style.cursor = 'pointer';
-        row.onclick = () => renderCaptureDetail(c, () => renderCapture());
+        row.onclick = () => renderCaptureDetail(c, () => renderCapture(currentChannels, currentBaseline));
 
         row.appendChild(info);
         row.appendChild(del);
@@ -988,12 +1144,18 @@ const liveTab = (() => {
 
       const cap = {
         captureId: store.newCaptureId(),
-        schema:    1,
+        schema:    2,
         label,
         take:      store.nextTake(label),
         date:      new Date().toISOString().slice(0, 10),
+        channels:  [...currentChannels],
+        baseline:  {
+          left:[...currentBaseline.left], right:[...currentBaseline.right],
+          method:'median', durationMs:1500,
+        },
         ...data,
       };
+      cap.analysis = pressureEngine.analyzeCapture(cap);
       const r = store.saveCapture(cap);
       if (r.ok === false) {
         app.showToast('⚠ 저장 공간 부족 — 캡처를 저장하지 못했습니다. LOG에서 내보낸 뒤 정리하세요.');
@@ -1123,6 +1285,20 @@ const liveTab = (() => {
     hdr.appendChild(ttl); hdr.appendChild(sub);
     panel.appendChild(hdr);
 
+    const channelRow=document.createElement('div'); channelRow.className='capture-channel-row';
+    channelRow.innerHTML=(cap.channels || LEGACY_CAPTURE_CHANNELS).map((pid,i)=>`<span class="channel-map-chip">CH${i+1} → ${pid} ${PRESSURE_POINTS[pid].label}</span>`).join('');
+    panel.appendChild(channelRow);
+
+    const analysis = cap.analysis || pressureEngine.analyzeCapture(cap);
+    const analysisCard = document.createElement('div');
+    analysisCard.className='card card-sm step-analysis';
+    const analysisSummary=document.createElement('div'); analysisSummary.className='step-summary';
+    const overlayBox=document.createElement('div'); overlayBox.className='step-overlay';
+    const analysisNote=document.createElement('small');
+    analysisNote.textContent='힐 접촉 상승 에지로 자동 분절 · 4점 COP는 개인 내 상대 비교용 추정치';
+    analysisCard.appendChild(analysisSummary); analysisCard.appendChild(overlayBox); analysisCard.appendChild(analysisNote);
+    panel.appendChild(analysisCard);
+
     // 발 전환
     if (feet.length > 1) {
       const ft = document.createElement('div');
@@ -1136,6 +1312,7 @@ const liveTab = (() => {
           ft.querySelectorAll('.dir-btn').forEach((el, i) =>
             el.classList.toggle('selected-positive', feet[i] === f));
           draw();
+          drawOverlay();
         };
         ft.appendChild(b);
       });
@@ -1263,11 +1440,13 @@ const liveTab = (() => {
         let d = '';
         dec.forEach((b, k) => {
           const px = x(arr[b.i][0]);
-          d += `${k ? 'L' : 'M'}${px.toFixed(1)},${y(b.hi).toFixed(1)}`;
+          const base = cap.baseline?.[viewFoot]?.[ch - 1] || 0;
+          d += `${k ? 'L' : 'M'}${px.toFixed(1)},${y(Math.max(0,b.hi-base)).toFixed(1)}`;
         });
         for (let k = dec.length - 1; k >= 0; k--) {
           const b = dec[k];
-          d += `L${x(arr[b.i][0]).toFixed(1)},${y(b.lo).toFixed(1)}`;
+          const base = cap.baseline?.[viewFoot]?.[ch - 1] || 0;
+          d += `L${x(arr[b.i][0]).toFixed(1)},${y(Math.max(0,b.lo-base)).toFixed(1)}`;
         }
         d += 'Z';
         const path = document.createElementNS(ns, 'path');
@@ -1300,7 +1479,23 @@ const liveTab = (() => {
       readout.textContent =
         `선택 ${(selA/1000).toFixed(1)}s – ${(selB/1000).toFixed(1)}s ` +
         `(${((selB - selA)/1000).toFixed(1)}s · ${n}샘플)` +
-        `   |   P1 P2 P3 P4 = 채널 1-4`;
+        `   |   ${(cap.channels || LEGACY_CAPTURE_CHANNELS).map((pid,i)=>`CH${i+1}=${pid}`).join(' ')}`;
+    }
+
+    function drawOverlay() {
+      const footAnalysis=analysis.feet?.[viewFoot] || {count:0,cadence:0,overlay:[]};
+      analysisSummary.innerHTML=`<strong>${FOOT_LABEL[viewFoot]} ${footAnalysis.count} steps</strong><span>${footAnalysis.cadence || 0} steps/min</span>`;
+      overlayBox.innerHTML='';
+      if(!footAnalysis.overlay?.length){ overlayBox.textContent='완전한 보행 주기가 아직 감지되지 않았습니다.'; return; }
+      const ns='http://www.w3.org/2000/svg', w=340,h=105,p=8;
+      const svg=document.createElementNS(ns,'svg'); svg.setAttribute('viewBox',`0 0 ${w} ${h}`); svg.setAttribute('preserveAspectRatio','none');
+      const max=Math.max(1,...footAnalysis.overlay.flat());
+      footAnalysis.overlay.forEach((curve,i)=>{
+        const path=document.createElementNS(ns,'path');
+        const d=curve.map((v,j)=>`${j?'L':'M'}${(p+j*(w-p*2)/(curve.length-1)).toFixed(1)},${(h-p-v/max*(h-p*2)).toFixed(1)}`).join(' ');
+        path.setAttribute('d',d); path.setAttribute('class',`step-curve step-${i%5}`); svg.appendChild(path);
+      });
+      overlayBox.appendChild(svg);
     }
 
     function saveTrim() {
@@ -1311,7 +1506,7 @@ const liveTab = (() => {
       const label = `${cap.label}-구간`;
       const trimmed = {
         captureId: store.newCaptureId(),
-        schema: 1, label, take: store.nextTake(label),
+        schema: 2, label, take: store.nextTake(label),
         date: new Date().toISOString().slice(0, 10),
         hz: cap.hz, fields: cap.fields,
         startedAt: cap.startedAt + selA,
@@ -1322,8 +1517,11 @@ const liveTab = (() => {
         markers: (cap.markers || []).filter(m => m.t >= selA && m.t <= selB)
                                     .map(m => ({ t: m.t - selA })),
         trimmedFrom: cap.captureId,
+        channels: [...(cap.channels || LEGACY_CAPTURE_CHANNELS)],
+        baseline: cap.baseline || {left:[0,0,0,0],right:[0,0,0,0]},
       };
       keep.forEach(f => { trimmed[f] = out[f].map(s => [s[0] - selA, ...s.slice(1)]); });
+      trimmed.analysis = pressureEngine.analyzeCapture(trimmed);
 
       const r = store.saveCapture(trimmed);
       if (r.ok === false) { app.showToast('⚠ 저장 공간 부족 — 저장하지 못했습니다.'); return; }
@@ -1353,6 +1551,8 @@ const liveTab = (() => {
         any = true;
       }
       if (!any) { app.showToast('선택 구간에 샘플이 없습니다.'); return; }
+      snapshot.channels = [...(cap.channels || LEGACY_CAPTURE_CHANNELS)];
+      snapshot.baseline = cap.baseline || null;
       configTab.startFromCapture(snapshot);
       app.switchTab('config');
       app.showToast('선택 구간의 채널별 최대값을 기준값으로 넘겼습니다.');
@@ -1360,6 +1560,7 @@ const liveTab = (() => {
 
     sync();
     draw();
+    drawOverlay();
   }
 
   /* -- Render wrap-up: record form -> AI coach report ---------
@@ -1569,15 +1770,16 @@ const liveTab = (() => {
   }
 
   /* ── Render free-capture state ──────────────────────────── */
-  function renderFreeCapture() {
+  function renderFreeCapture(channels = DEFAULT_CAPTURE_CHANNELS, baseline = null) {
     mode = 'capture';
     currentDrill = null;
+    currentChannels = [...channels];
+    currentBaseline = baseline || {left:[0,0,0,0],right:[0,0,0,0]};
     panel.innerHTML = '';
     latest.left  = { values: null, alerts: [], accuracy: null };
     latest.right = { values: null, alerts: [], accuracy: null };
 
-    // FSR-only points (P1-P4) for display
-    const fsrPoints = POINT_IDS.slice(0, 4);
+    const fsrPoints = currentChannels;
 
     const hdr = document.createElement('div');
     hdr.className = 'session-header';
@@ -1650,6 +1852,8 @@ const liveTab = (() => {
         renderIdle();
         return;
       }
+      snapshot.channels = [...currentChannels];
+      snapshot.baseline = currentBaseline;
       configTab.startFromCapture(snapshot);
       app.switchTab('config');
     };
@@ -1727,9 +1931,10 @@ const liveTab = (() => {
       row.className = 'modal-pt-row';
       const idBadge = document.createElement('span');
       idBadge.className   = 'modal-pt-id';
-      idBadge.textContent = pt.id;
+      const ch = channelOf(drill, pt.id);
+      idBadge.textContent = `CH${ch + 1}`;
       const info = document.createElement('span');
-      info.textContent = `${pp.name} — ${pp.label}`;
+      info.textContent = `${pt.id} ${pp.name} — ${pp.label}`;
       const dir = document.createElement('span');
       dir.style.cssText = 'margin-left:auto;font-size:11px;font-family:var(--font-mono);';
       dir.style.color = pt.direction === 'positive' ? 'var(--color-ok)' : 'var(--color-alert-p)';
@@ -1772,13 +1977,34 @@ const liveTab = (() => {
     const svg = document.getElementById(`live-svg-${foot}`);
     if (!svg) return;
     const alertMap = new Map(alerts.map(a => [a.pointId, a.type]));
-    const points = currentDrill ? currentDrill.points.map(p => p.id) : POINT_IDS.slice(0, 4);
+    const points = currentDrill ? currentDrill.points.map(p => p.id) : currentChannels;
+    const values = latest[foot].values;
+    const deltas = pressureEngine.deltaValues(values, currentBaseline[foot]);
     points.forEach(pid => {
       const dot = svg.querySelector(`.pp-dot[data-id="${pid}"]`);
       if (!dot) return;
       const aType = alertMap.get(pid);
-      dot.dataset.state = aType ? (aType === 'negative' ? 'alert-n' : 'alert-p') : 'ok';
+      if (!currentDrill && values) {
+        const idx = currentChannels.indexOf(pid);
+        dot.dataset.state = 'heat';
+        dot.dataset.heat = String(pressureEngine.heatLevel(deltas[idx] || 0));
+        dot.style.setProperty('--heat-scale', String(1 + Math.min(0.75, (deltas[idx] || 0) / 700)));
+      } else {
+        dot.dataset.state = aType ? (aType === 'negative' ? 'alert-n' : 'alert-p') : 'ok';
+      }
     });
+    if (!currentDrill && values) {
+      const metric = pressureEngine.balance({
+        left:{values:latest.left.values,baseline:currentBaseline.left},
+        right:{values:latest.right.values,baseline:currentBaseline.right},
+      }, currentChannels);
+      const cop = metric.feet[foot].cop;
+      const copDot = svg.querySelector('.cop-dot');
+      if (copDot) {
+        copDot.style.display = cop ? '' : 'none';
+        if (cop) { copDot.setAttribute('cx',cop.x); copDot.setAttribute('cy',cop.y); }
+      }
+    }
   }
 
   function updateGauges(foot, values, alerts) {
@@ -1791,10 +2017,11 @@ const liveTab = (() => {
       const line = row.querySelector(`.gauge-line[data-foot="${foot}"]`);
       if (!line) return;
 
-      // FREE CAPTURE has no drill and shows the raw P1-P4 channels,
-      // which is exactly what channelOf(null, …) returns.
-      const idx   = channelOf(currentDrill ? currentDrill.points : null, pid);
-      const val   = idx >= 0 ? (values[idx] ?? 0) : 0;
+      // Capture modes have no drill; currentChannels is the explicit
+      // physical CH1-CH4 -> anatomical point mapping.
+      const idx   = currentDrill ? channelOf(currentDrill, pid) : currentChannels.indexOf(pid);
+      const raw   = idx >= 0 ? (values[idx] ?? 0) : 0;
+      const val   = currentDrill ? raw : Math.max(0, raw - (currentBaseline[foot]?.[idx] || 0));
       const pct   = Math.round((val / MAX_SENSOR_VAL) * 100);
       const aType = alertMap.get(pid);
 
@@ -1923,7 +2150,20 @@ const liveTab = (() => {
     });
     updateBanner();
     updateComparison();
+    updateMotionMetrics();
     updateOverallQuality();
+  }
+
+  function updateMotionMetrics() {
+    if (mode !== 'motioncap') return;
+    const m = pressureEngine.balance({
+      left:{values:latest.left.values,baseline:currentBaseline.left},
+      right:{values:latest.right.values,baseline:currentBaseline.right},
+    }, currentChannels);
+    const lr=document.getElementById('motion-lr');
+    const fr=document.getElementById('motion-fr');
+    if(lr) lr.textContent=`${m.leftPct} / ${m.rightPct}`;
+    if(fr) fr.textContent=`${m.forePct} / ${m.rearPct}`;
   }
 
   function updateOverallQuality() {
@@ -2088,8 +2328,8 @@ const liveTab = (() => {
       updateConnectionDependentUI();
     },
 
-    startFreeCapture() { renderFreeCapture(); },
-    startMotionCapture() { bindSessionCallbacks(); renderCapture(); },
+    startFreeCapture() { renderCapturePlacement('free'); },
+    startMotionCapture() { renderCapturePlacement('motion'); },
     prepareSession(drill) { renderReady(drill); },
 
     startSession(drill) {

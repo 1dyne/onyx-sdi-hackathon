@@ -95,10 +95,19 @@ const store = (() => {
 
     /* ── Drills ─────────────────────────────────────────── */
     getDrills() {
-      return load(K.drills).map(d => ({
-        ...d,
-        points: (d.points || []).map(migratePoint),
-      }));
+      return load(K.drills).map(d => {
+        const channels = Array.isArray(d.channels)
+          ? d.channels
+          : (d.points || []).map(p => p.id).sort((a,b) => Number(a.slice(1))-Number(b.slice(1)));
+        return {
+          ...d,
+          channels,
+          points: (d.points || []).map(migratePoint).map(p => ({
+            ...p,
+            channel: Number.isInteger(p.channel) ? p.channel : channels.indexOf(p.id),
+          })),
+        };
+      });
     },
 
     getDrill(id) { return this.getDrills().find(d => d.id === id) || null; },
