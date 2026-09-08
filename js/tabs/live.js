@@ -774,7 +774,9 @@ const liveTab = (() => {
     mode = 'placement';
     currentDrill = null;
     panel.innerHTML = '';
-    let channels = [...DEFAULT_CAPTURE_CHANNELS];
+    // Capture always starts empty: the wearer must explicitly confirm
+    // the four physical mounting positions, just like CONFIG step 2.
+    let channels = [];
 
     const heading = document.createElement('div');
     heading.className = 'section-heading';
@@ -860,7 +862,7 @@ const liveTab = (() => {
     const heading = document.createElement('div'); heading.className='section-heading'; heading.textContent='BASELINE (영점)';
     panel.appendChild(heading);
     const guide = document.createElement('div'); guide.className='ready-banner';
-    guide.textContent='장비를 착용한 뒤 발에 힘을 주지 않은 상태를 유지하세요. 1.5초 동안 각 채널의 중앙값을 영점으로 저장합니다.';
+    guide.textContent='장비를 착용한 뒤 발에 힘을 주지 말고 3초간 대기하세요. 3초 동안 각 채널의 중앙값을 영점으로 저장합니다.';
     panel.appendChild(guide);
     panel.appendChild(buildConnectCard());
 
@@ -868,7 +870,7 @@ const liveTab = (() => {
     const actions = document.createElement('div'); actions.className='live-actions'; actions.style.gridTemplateColumns='1fr 1fr';
     const back = document.createElement('button'); back.className='btn btn-ghost'; back.textContent='← 배치 수정';
     back.onclick=()=>{session.stopFreeCapture();renderCapturePlacement(kind);};
-    const measure = document.createElement('button'); measure.className='btn btn-ok'; measure.textContent='1.5초 BASELINE 측정';
+    const measure = document.createElement('button'); measure.className='btn btn-ok'; measure.textContent='3초 BASELINE 측정';
     actions.appendChild(back); actions.appendChild(measure); panel.appendChild(actions);
 
     bindSessionCallbacks();
@@ -879,14 +881,16 @@ const liveTab = (() => {
       if (!bluetooth.isAnyLive()) { app.showToast('먼저 L 또는 R 유닛을 연결하세요.'); return; }
       measure.disabled = true; back.disabled = true;
       const samples = {left:[],right:[]}; let ticks=0;
-      status.textContent='측정 중… 힘을 빼고 그대로 유지하세요';
+      const totalTicks = Math.ceil(BASELINE_DURATION_MS / BASELINE_SAMPLE_MS);
+      status.textContent='3초간 힘을 빼고 대기하세요 · 남은 3초';
       const id=setInterval(()=>{
         ticks++;
         FOOT_IDS.forEach(f=>{
           if (session.hasFoot(f)) samples[f].push([...session.currentValues(f).slice(0,4)]);
         });
-        status.textContent=`측정 중 ${Math.min(100,Math.round(ticks/15*100))}%`;
-        if(ticks<15)return;
+        const remain = Math.max(0, Math.ceil((totalTicks - ticks) * BASELINE_SAMPLE_MS / 1000));
+        status.textContent=`BASELINE 측정 중 · 힘을 빼고 대기 · 남은 ${remain}초`;
+        if(ticks<totalTicks)return;
         clearInterval(id);
         const joined = FOOT_IDS.filter(f=>samples[f].length);
         if(!joined.length){
@@ -898,7 +902,7 @@ const liveTab = (() => {
         session.stopFreeCapture();
         status.textContent=FOOT_IDS.map(f=>`${FOOT_LABEL[f]} ${currentBaseline[f].join(' / ')}`).join(' · ');
         setTimeout(()=> kind==='motion' ? renderCapture(channels,currentBaseline) : renderFreeCapture(channels,currentBaseline), 350);
-      },100);
+      },BASELINE_SAMPLE_MS);
     };
   }
 
@@ -1151,7 +1155,7 @@ const liveTab = (() => {
         channels:  [...currentChannels],
         baseline:  {
           left:[...currentBaseline.left], right:[...currentBaseline.right],
-          method:'median', durationMs:1500,
+          method:'median', durationMs:BASELINE_DURATION_MS,
         },
         ...data,
       };

@@ -179,6 +179,8 @@ const RAW_SCHEMA             = 1;
 const CAPTURE_MAX_MS      = 10 * 60 * 1000;
 const CAPTURE_MAX_SAMPLES = 6200;          // 발당. 10분 + 약간의 여유
 const CAPTURE_COUNTIN_SEC = 3;             // 자세 잡을 시간
+const BASELINE_DURATION_MS = 3000;          // 장착 압력 영점: 3초 중앙값
+const BASELINE_SAMPLE_MS   = 100;
 
 const MAX_SENSOR_VAL  = 1023;
 const GAIT_ACTIVE_THR = 80;   // raw value above which a point is considered "active" in gait check
