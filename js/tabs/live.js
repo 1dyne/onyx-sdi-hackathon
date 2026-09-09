@@ -26,6 +26,24 @@ const liveTab = (() => {
   let currentDrill = null;
   let currentChannels = [...DEFAULT_CAPTURE_CHANNELS];
   let currentBaseline = { left:[0,0,0,0], right:[0,0,0,0] };
+  let currentContext = null;
+  let baselineEvidence = null;
+  let baselineRun = null;
+  let collecting = false;
+  const observed = {left:null,right:null};
+
+  function contextSnapshot() {
+    return {...validation.copy(currentContext || validation.defaults()), buildVersion:BUILD_VERSION,
+      devices:Object.fromEntries(FOOT_IDS.map(f=>[f,{id:bluetooth.foot(f).deviceId,name:bluetooth.foot(f).deviceName,simulated:bluetooth.foot(f).isSimulating()}])),
+      adcMax:{left:store.getSettings().adcMaxLeft,right:store.getSettings().adcMaxRight}};
+  }
+
+  function checkBaselineLinks() {
+    const feet=Object.keys(baselineEvidence || {});
+    return feet.length && feet.every(f=>bluetooth.foot(f).isLive() && observed[f] && Date.now()-observed[f].t<600 &&
+      baselineEvidence[f].deviceId===bluetooth.foot(f).deviceId) &&
+      bluetooth.liveFeet().every(f=>feet.includes(f));
+  }
 
   /* ── SVG foot builder ───────────────────────────────────────
      The pressure-point coordinates in constants.js describe a LEFT
@@ -323,6 +341,15 @@ const liveTab = (() => {
     empty.className = 'empty-state';
     empty.innerHTML = 'TRAINING 탭에서<br>동작을 선택해 시작하세요.';
     panel.appendChild(empty);
+    const saved=validation.node('button','btn btn-ghost','저장된 캡처 보기 / 동작 등록');
+    saved.onclick=()=>{
+      panel.innerHTML='';mode='caplist';
+      const back=validation.node('button','btn btn-ghost','← 대시보드');back.onclick=renderIdle;panel.append(back);
+      const captures=store.getCaptures().slice().reverse();
+      if(!captures.length)panel.append(validation.node('div','empty-state','아직 캡처가 없습니다.'));
+      captures.forEach(cap=>{const b=validation.node('button','btn',`${cap.label} · ${cap.duration}s${cap.interrupted?' · 중단 복구본':''}`);b.onclick=()=>renderCaptureDetail(cap,()=>saved.onclick());panel.append(b);});
+    };
+    panel.append(saved);
 
     // ── FREE CAPTURE section ───────────────────────────────
     const divider = document.createElement('div');
@@ -862,14 +889,16 @@ const liveTab = (() => {
     const heading = document.createElement('div'); heading.className='section-heading'; heading.textContent='BASELINE (영점)';
     panel.appendChild(heading);
     const guide = document.createElement('div'); guide.className='ready-banner';
-    guide.textContent='장비를 착용한 뒤 발에 힘을 주지 말고 3초간 대기하세요. 3초 동안 각 채널의 중앙값을 영점으로 저장합니다.';
+    guide.textContent='선택한 baseline 자세에서 발바닥 부하를 덜고 3초간 같은 자세로 대기하세요. 서 있는 체중 부하를 영점으로 잡지 않도록 자세를 확인하세요. 신발·고정 상태가 바뀌면 다시 측정하세요.';
     panel.appendChild(guide);
+    const conditions=validation.form(currentContext || validation.defaults());
+    panel.appendChild(conditions.element);
     panel.appendChild(buildConnectCard());
 
     const status = document.createElement('div'); status.className='card card-sm baseline-status'; status.textContent='측정 준비'; panel.appendChild(status);
     const actions = document.createElement('div'); actions.className='live-actions'; actions.style.gridTemplateColumns='1fr 1fr';
     const back = document.createElement('button'); back.className='btn btn-ghost'; back.textContent='← 배치 수정';
-    back.onclick=()=>{session.stopFreeCapture();renderCapturePlacement(kind);};
+    back.onclick=()=>{currentContext=conditions.read();session.stopFreeCapture();renderCapturePlacement(kind);};
     const measure = document.createElement('button'); measure.className='btn btn-ok'; measure.textContent='3초 BASELINE 측정';
     actions.appendChild(back); actions.appendChild(measure); panel.appendChild(actions);
 
@@ -879,29 +908,35 @@ const liveTab = (() => {
 
     measure.onclick = () => {
       if (!bluetooth.isAnyLive()) { app.showToast('먼저 L 또는 R 유닛을 연결하세요.'); return; }
-      measure.disabled = true; back.disabled = true;
-      const samples = {left:[],right:[]}; let ticks=0;
-      const totalTicks = Math.ceil(BASELINE_DURATION_MS / BASELINE_SAMPLE_MS);
+      currentContext=conditions.read();
+      measure.disabled = true; back.disabled = true; conditions.disable(true); collecting=true;
+      const started=Date.now(), expected=bluetooth.liveFeet();
+      const identities=Object.fromEntries(expected.map(f=>[f,bluetooth.foot(f).deviceId]));
+      const samples = {left:[],right:[]};
+      baselineRun={samples,expected};
       status.textContent='3초간 힘을 빼고 대기하세요 · 남은 3초';
       const id=setInterval(()=>{
-        ticks++;
-        FOOT_IDS.forEach(f=>{
-          if (session.hasFoot(f)) samples[f].push([...session.currentValues(f).slice(0,4)]);
-        });
-        const remain = Math.max(0, Math.ceil((totalTicks - ticks) * BASELINE_SAMPLE_MS / 1000));
+        const remain = Math.max(0, Math.ceil((BASELINE_DURATION_MS-(Date.now()-started))/1000));
         status.textContent=`BASELINE 측정 중 · 힘을 빼고 대기 · 남은 ${remain}초`;
-        if(ticks<totalTicks)return;
+        if(remain>0)return;
         clearInterval(id);
-        const joined = FOOT_IDS.filter(f=>samples[f].length);
-        if(!joined.length){
-          status.textContent='데이터가 들어오지 않았습니다. 연결 상태를 확인하고 다시 측정하세요.';
-          measure.disabled=false; back.disabled=false;
+        baselineRun=null; collecting=false;
+        const ended=Date.now();
+        baselineEvidence=Object.fromEntries(expected.map(f=>[f,{...validation.baselineQuality(samples[f],started,ended),deviceId:bluetooth.foot(f).deviceId,samples:samples[f]}]));
+        const errors=expected.flatMap(f=>baselineEvidence[f].reasons.map(reason=>`${FOOT_LABEL[f]} ${reason}`));
+        if(expected.some(f=>!bluetooth.foot(f).isLive() || identities[f]!==bluetooth.foot(f).deviceId) || bluetooth.liveFeet().some(f=>!expected.includes(f))) errors.push('측정 중 연결 변경: 다시 측정하세요');
+        if(errors.length){
+          status.textContent=errors.join(' · ');
+          measure.disabled=false; back.disabled=false;conditions.disable(false);baselineEvidence=null;
           return;
         }
-        FOOT_IDS.forEach(f=>{ if(samples[f].length) currentBaseline[f]=pressureEngine.baselineFromSamples(samples[f]); });
+        expected.forEach(f=>{currentBaseline[f]=baselineEvidence[f].baseline;});
+        currentContext={...currentContext,conditionId:validation.id(),measuredAt:new Date().toISOString()};
         session.stopFreeCapture();
-        status.textContent=FOOT_IDS.map(f=>`${FOOT_LABEL[f]} ${currentBaseline[f].join(' / ')}`).join(' · ');
-        setTimeout(()=> kind==='motion' ? renderCapture(channels,currentBaseline) : renderFreeCapture(channels,currentBaseline), 350);
+        status.textContent=expected.map(f=>`${FOOT_LABEL[f]} ${currentBaseline[f].join(' / ')} · ${baselineEvidence[f].count}개 수신 · 흔들림 ${baselineEvidence[f].spread.join('/')} · 남은 범위 ${baselineEvidence[f].headroom.join('/')}`).join('\n');
+        status.append(validation.node('small','','신호 검증 통과 · 의료 정확도를 뜻하지 않습니다. 기준값과 남은 범위를 확인하세요.'));
+        measure.textContent='측정 확인 · 캡처 화면으로'; measure.disabled=false;back.disabled=false;
+        measure.onclick=()=>kind==='motion'?renderCapture(channels,currentBaseline):renderFreeCapture(channels,currentBaseline);
       },BASELINE_SAMPLE_MS);
     };
   }
@@ -919,6 +954,9 @@ const liveTab = (() => {
     let tickId     = null;
     let autoStopId = null;
     let label      = '';
+    let recordingContext=null, captureId=null, checkpointTimer=null, checkpointQueue=Promise.resolve();
+    let recordingLabel='';
+    let wakeLock=null;
 
     const hdr = document.createElement('div');
     hdr.className = 'session-header';
@@ -936,6 +974,10 @@ const liveTab = (() => {
     const channelRow=document.createElement('div'); channelRow.className='capture-channel-row';
     channelRow.innerHTML=currentChannels.map((pid,i)=>`<span class="channel-map-chip">CH${i+1} → ${pid} ${PRESSURE_POINTS[pid].label}</span>`).join('');
     panel.appendChild(channelRow);
+    panel.appendChild(validation.summary(currentContext));
+    const remeasure=validation.node('button','btn btn-ghost','조건·동작 변경 / BASELINE 재측정');
+    remeasure.onclick=()=>{if(!recording&&!countingIn)renderBaselineSetup('motion',currentChannels);};
+    panel.appendChild(remeasure);
 
     /* ── 라벨 ── */
     const labelCard = document.createElement('div');
@@ -951,6 +993,8 @@ const liveTab = (() => {
     labelInput.className = 'form-input';
     labelInput.placeholder = '보행, 스쿼트, 한발서기 …';
     labelInput.oninput = () => { label = labelInput.value.trim(); syncRecBtn(); };
+    labelInput.value=validation.tasks[currentContext?.task] || '';
+    label=labelInput.value;
     labelCard.appendChild(labelInput);
 
     // 최근 라벨 — 반복 촬영할 때 매번 타이핑하지 않도록.
@@ -963,7 +1007,7 @@ const liveTab = (() => {
         const b = document.createElement('button');
         b.className = 'coach-chip cap-chip-btn';
         b.textContent = l;
-        b.onclick = () => { labelInput.value = l; label = l; syncRecBtn(); };
+        b.onclick = () => { if(recording||countingIn)return;labelInput.value = l; label = l; syncRecBtn(); };
         chips.appendChild(b);
       });
       labelCard.appendChild(chips);
@@ -986,8 +1030,11 @@ const liveTab = (() => {
 
     const balance = document.createElement('div');
     balance.id='motion-balance'; balance.className='motion-balance card card-sm';
-    balance.innerHTML='<div><span>L/R</span><strong id="motion-lr">50 / 50</strong></div><div><span>FORE/REAR</span><strong id="motion-fr">50 / 50</strong></div><small>● = 4점 기반 상대 압력중심(COP) 추정</small>';
+    balance.innerHTML='<div><span>L/R 신호</span><strong id="motion-lr">—</strong></div><div><span>전/후 신호</span><strong id="motion-fr">—</strong></div><small>● = 4점 기반 상대 압력중심(COP) 추정</small>';
     panel.appendChild(balance);
+    const signal=validation.node('div','card card-sm validation-summary','센서 수신 상태는 REC 후 표시됩니다.');
+    panel.appendChild(signal);
+    panel.appendChild(validation.node('small','','L/R은 ADC 변화량 합계의 비율입니다. 체중 분배율이 아닙니다. 색상은 좌우 공통 민감도를 사용합니다. 화면을 켜둔 채 기록하세요.'));
 
     /* ── 컨트롤 ── */
     const actions = document.createElement('div');
@@ -1010,6 +1057,24 @@ const liveTab = (() => {
     actions.appendChild(btnMark);
     actions.appendChild(btnBack);
     panel.appendChild(actions);
+    const markerType=validation.node('select','form-input');
+    ['반복 시작','반복 종료','안정 구간','착석 완료','기립 완료','지지 유지','직선 보행','회전','보조 변경','센서 이상','참고 구간','구간 표시'].forEach(label=>{const o=validation.node('option','',label);markerType.append(o);});
+    markerType.setAttribute('aria-label','구간 종류');
+    const markerNote=validation.node('input','form-input');markerNote.placeholder='구간 메모 (보조 변경 내용 등)';markerNote.maxLength=500;
+    panel.append(markerType,markerNote);
+
+    function composeCapture(data) {
+      const cap={captureId,schema:3,label:recordingLabel,take:store.nextTake(recordingLabel),date:new Date().toISOString().slice(0,10),
+        channels:[...currentChannels],context:validation.copy(recordingContext),
+        baseline:{...validation.copy(currentBaseline),method:'fresh-packets-median-v1',durationMs:BASELINE_DURATION_MS,evidence:validation.copy(baselineEvidence)},...data};
+      cap.signalQuality=Object.fromEntries(FOOT_IDS.map(f=>[f,validation.signalQuality(cap[f],cap.duration*1000)]));
+      return cap;
+    }
+    function checkpoint(){
+      const data=session.captureSnapshot(); if(!data?.feet.length)return;
+      const cap=composeCapture(data);cap.interrupted=true;
+      checkpointQueue=checkpointQueue.then(()=>validation.pending('put',cap)).catch(()=>{hintEl.textContent='⚠ 임시저장 실패 · STOP 후 내보내기';});
+    }
 
     /* ── 저장된 테이크 ── */
     const takesHdr = document.createElement('div');
@@ -1084,13 +1149,14 @@ const liveTab = (() => {
         del.title = '삭제';
         del.onclick = (e) => {
           e.stopPropagation();
+          if(recording||countingIn){app.showToast('녹화를 마친 뒤 기록을 정리하세요.');return;}
           if (!confirm(`"${c.label} #${c.take}" 캡처를 삭제할까요?`)) return;
           store.deleteCapture(c.captureId);
           renderTakes();
         };
 
         row.style.cursor = 'pointer';
-        row.onclick = () => renderCaptureDetail(c, () => renderCapture(currentChannels, currentBaseline));
+        row.onclick = () => {if(recording||countingIn){app.showToast('녹화를 마친 뒤 캡처를 열어주세요.');return;}renderCaptureDetail(c, () => renderCapture(currentChannels, currentBaseline));};
 
         row.appendChild(info);
         row.appendChild(del);
@@ -1105,12 +1171,26 @@ const liveTab = (() => {
       el.textContent = parts.join('  ·  ') + '  샘플';
       const tEl = document.getElementById('cap-time');
       if (tEl) tEl.textContent = fmtMs(session.captureElapsedMs);
+      updateMotionMetrics();
+      signal.textContent=FOOT_IDS.map(f=>{
+        const seen=observed[f],age=seen?Date.now()-seen.t:Infinity;
+        if(age>=600){
+          document.querySelectorAll(`#live-svg-${f} .pp-dot`).forEach(dot=>dot.dataset.state='inactive');
+          const cop=document.querySelector(`#live-svg-${f} .cop-dot`);if(cop)cop.style.display='none';
+        }
+        return `${FOOT_LABEL[f]} ${age<600?'수신 중':'수신 없음/공백'} · ${age<600?bluetooth.foot(f).sampleRate():0}Hz`+
+          (seen?.v.some(v=>v>=1000)?' · 상한 근접':'')+(baselineEvidence?.[f]?'':' · baseline 없음');
+      }).join('\n');
     }
 
     function beginRecording() {
       countingIn = false;
       recording = true;
+      collecting=true; remeasure.disabled=true;
+      recordingContext=contextSnapshot(); recordingLabel=label; captureId=validation.id();
       session.startCapture();
+      checkpointTimer=setInterval(checkpoint,5000);
+      navigator.wakeLock?.request('screen').then(lock=>{if(recording)wakeLock=lock;else lock.release();}).catch(()=>{});
       btnRec.disabled = false;
       btnRec.textContent = '■ STOP';
       btnRec.classList.add('recording');
@@ -1129,6 +1209,8 @@ const liveTab = (() => {
     function stopRecording() {
       if (!recording) return;
       recording = false;
+      collecting=false; remeasure.disabled=false; clearInterval(checkpointTimer);
+      wakeLock?.release();wakeLock=null;
       clearInterval(tickId); tickId = null;
       clearTimeout(autoStopId); autoStopId = null;
 
@@ -1146,32 +1228,32 @@ const liveTab = (() => {
         return;
       }
 
-      const cap = {
-        captureId: store.newCaptureId(),
-        schema:    2,
-        label,
-        take:      store.nextTake(label),
-        date:      new Date().toISOString().slice(0, 10),
-        channels:  [...currentChannels],
-        baseline:  {
-          left:[...currentBaseline.left], right:[...currentBaseline.right],
-          method:'median', durationMs:BASELINE_DURATION_MS,
-        },
-        ...data,
-      };
+      const cap = composeCapture(data);
       cap.analysis = pressureEngine.analyzeCapture(cap);
       const r = store.saveCapture(cap);
       if (r.ok === false) {
-        app.showToast('⚠ 저장 공간 부족 — 캡처를 저장하지 못했습니다. LOG에서 내보낸 뒤 정리하세요.');
+        checkpointQueue=checkpointQueue.then(()=>validation.pending('put',cap)).catch(()=>{});
+        const rescue=validation.node('button','btn btn-danger','저장 실패 · 이번 캡처 원본 다운로드');
+        rescue.onclick=()=>validation.download({format:'onyx-sdi-backup',version:BUILD_VERSION,captures:[cap],drills:[],sessions:[]},`onyx-${cap.captureId}.json`);
+        panel.prepend(rescue);
+        app.showToast('저장 공간 부족 · 원본 다운로드 버튼으로 보존하세요.');
         return;
       }
+      checkpointQueue=checkpointQueue.then(()=>validation.pending('delete')).catch(()=>{});
       app.showToast(`${cap.label} #${cap.take} 저장 · ${cap.duration}s`);
       renderTakes();
     }
 
-    btnRec.onclick = () => {
+    btnRec.onclick = async () => {
       if (recording) { stopRecording(); return; }
       if (countingIn) return;
+      btnRec.disabled=true;
+      try{
+        await checkpointQueue;
+        if(await validation.pending('get')){app.showToast('복구 대기 캡처가 있습니다. ⋮ → 🛠에서 복구·다운로드 후 정리하세요.');return;}
+      }catch{app.showToast('임시저장 사용 불가 · 종료 후 원본을 바로 내보내세요.');}
+      finally{btnRec.disabled=false;}
+      if(mode!=='motioncap')return;
       if (!label) {
         labelInput.focus();
         app.showToast('동작 이름을 입력한 뒤 REC를 눌러주세요.');
@@ -1181,9 +1263,11 @@ const liveTab = (() => {
         app.showToast('연결된 유닛이 없습니다 — 헤더의 L / R 버튼으로 연결하세요.');
         return;
       }
+      if(!checkBaselineLinks()){app.showToast('Baseline 측정 때와 연결 상태가 다릅니다. 재측정하세요.');return;}
       // 카운트인 — 폰을 주머니에 넣거나 자세를 잡을 시간.
       let n = CAPTURE_COUNTIN_SEC;
       countingIn = true;
+      collecting=true; remeasure.disabled=true;
       labelInput.disabled = true;
       hintEl.textContent = `${n}…`;
       document.getElementById('cap-counts').textContent = `${n}초 후 녹화 시작`;
@@ -1196,8 +1280,9 @@ const liveTab = (() => {
           return;
         }
         clearInterval(countInId); countInId = null;
-        if (!bluetooth.isAnyLive()) {
+        if (!checkBaselineLinks()) {
           countingIn = false;
+          collecting=false; remeasure.disabled=false;
           labelInput.disabled = false;
           hintEl.textContent = '판정 없음 · 원시 기록';
           syncRecBtn();
@@ -1210,7 +1295,8 @@ const liveTab = (() => {
     };
 
     btnMark.onclick = () => {
-      const m = session.markCapture();
+      const m = session.markCapture(markerType.value,markerNote.value.trim());
+      markerNote.value='';
       if (m) app.showToast(`구간 표시 ${fmtMs(m.t)}`);
     };
 
@@ -1218,6 +1304,7 @@ const liveTab = (() => {
       if (recording && !confirm('녹화 중입니다. 중단하고 나갈까요?\n지금까지 찍힌 구간은 저장됩니다.')) return;
       if (countInId) { clearInterval(countInId); countInId = null; }
       countingIn = false;
+      collecting=false;
       if (recording) stopRecording();
       renderIdle();
     };
@@ -1288,6 +1375,25 @@ const liveTab = (() => {
     sub.textContent = `${cap.duration}s · ${cap.date}`;
     hdr.appendChild(ttl); hdr.appendChild(sub);
     panel.appendChild(hdr);
+    panel.appendChild(validation.summary(cap.context));
+    const quality=validation.node('div','card validation-summary');
+    quality.append(validation.node('strong','','측정 상태 · 동작 성공 점수와 별개'));
+    FOOT_IDS.forEach(f=>{
+      const q=validation.signalQuality(cap[f],cap.duration*1000);
+      quality.append(validation.node('div','',`${FOOT_LABEL[f]} ${q.count}개 · ${q.hz}Hz · 최대 공백 ${q.maxGapMs}ms · 상한 근접 ${q.saturationPct}%`));
+    });
+    const exportOne=validation.node('button','btn btn-ghost','이 캡처 원본 내보내기');
+    exportOne.onclick=()=>validation.download({format:'onyx-sdi-backup',version:BUILD_VERSION,captures:[cap],drills:[],sessions:[]},`onyx-${cap.captureId}.json`);
+    quality.append(exportOne);panel.append(quality);
+    const reviewLabel=validation.node('label','form-group');reviewLabel.append(validation.node('span','form-label','담당자 검토 / 참고·제외 사유'));
+    const review=validation.node('textarea','form-input');review.maxLength=2000;review.value=cap.reviewNote||'';reviewLabel.append(review);
+    const reviewSave=validation.node('button','btn btn-ghost','검토 메모 저장');
+    reviewSave.onclick=()=>{const updated={...cap,reviewNote:review.value};if(store.saveCapture(updated).ok){cap.reviewNote=review.value;app.showToast('메모 저장 완료');}else app.showToast('메모 저장 실패 · 원본을 내보내세요');};
+    panel.append(reviewLabel,reviewSave);
+    if(cap.markers?.length){
+      const markers=validation.node('div','card validation-summary');
+      cap.markers.forEach(m=>markers.append(validation.node('div','',`${(m.t/1000).toFixed(1)}초 · ${m.label||'구간 표시'} ${m.note||''}`)));panel.append(markers);
+    }
 
     const channelRow=document.createElement('div'); channelRow.className='capture-channel-row';
     channelRow.innerHTML=(cap.channels || LEGACY_CAPTURE_CHANNELS).map((pid,i)=>`<span class="channel-map-chip">CH${i+1} → ${pid} ${PRESSURE_POINTS[pid].label}</span>`).join('');
@@ -1299,9 +1405,9 @@ const liveTab = (() => {
     const analysisSummary=document.createElement('div'); analysisSummary.className='step-summary';
     const overlayBox=document.createElement('div'); overlayBox.className='step-overlay';
     const analysisNote=document.createElement('small');
-    analysisNote.textContent='힐 접촉 상승 에지로 자동 분절 · 4점 COP는 개인 내 상대 비교용 추정치';
+    analysisNote.textContent='뒤쪽 선택 센서의 상승으로 추정 · 접촉이 불명확하면 누락될 수 있음 · 주기/분은 전체 기록 시간 기준';
     analysisCard.appendChild(analysisSummary); analysisCard.appendChild(overlayBox); analysisCard.appendChild(analysisNote);
-    panel.appendChild(analysisCard);
+    if(!cap.context || cap.context.task==='walk') panel.appendChild(analysisCard);
 
     // 발 전환
     if (feet.length > 1) {
@@ -1391,8 +1497,8 @@ const liveTab = (() => {
 
     const btnRef = document.createElement('button');
     btnRef.className = 'btn btn-ok';
-    btnRef.textContent = '기준값으로 →';
-    btnRef.title = '선택 구간의 값으로 새 동작(drill)을 만듭니다';
+    btnRef.textContent = '동작 등록 →';
+    btnRef.title = '선택 구간과 측정 조건을 참고 데이터로 등록합니다';
     btnRef.onclick = () => useAsReference();
 
     actions.appendChild(btnSave);
@@ -1488,7 +1594,7 @@ const liveTab = (() => {
 
     function drawOverlay() {
       const footAnalysis=analysis.feet?.[viewFoot] || {count:0,cadence:0,overlay:[]};
-      analysisSummary.innerHTML=`<strong>${FOOT_LABEL[viewFoot]} ${footAnalysis.count} steps</strong><span>${footAnalysis.cadence || 0} steps/min</span>`;
+      analysisSummary.innerHTML=`<strong>${FOOT_LABEL[viewFoot]} ${footAnalysis.count} 검출 주기</strong><span>${footAnalysis.cadence || 0} 주기/기록분</span>`;
       overlayBox.innerHTML='';
       if(!footAnalysis.overlay?.length){ overlayBox.textContent='완전한 보행 주기가 아직 감지되지 않았습니다.'; return; }
       const ns='http://www.w3.org/2000/svg', w=340,h=105,p=8;
@@ -1519,47 +1625,48 @@ const liveTab = (() => {
         // 잘라낸 구간은 t를 0부터 다시 센다. 그래야 여러 구간을
         // 같은 축에 올려 비교할 수 있다.
         markers: (cap.markers || []).filter(m => m.t >= selA && m.t <= selB)
-                                    .map(m => ({ t: m.t - selA })),
+                                    .map(m => ({ ...m, t: m.t - selA })),
         trimmedFrom: cap.captureId,
         channels: [...(cap.channels || LEGACY_CAPTURE_CHANNELS)],
         baseline: cap.baseline || {left:[0,0,0,0],right:[0,0,0,0]},
+        context:cap.context?validation.copy(cap.context):null,
+        reviewNote:review.value,sourceRange:{startMs:selA,endMs:selB},
       };
       keep.forEach(f => { trimmed[f] = out[f].map(s => [s[0] - selA, ...s.slice(1)]); });
       trimmed.analysis = pressureEngine.analyzeCapture(trimmed);
+      trimmed.signalQuality=Object.fromEntries(FOOT_IDS.map(f=>[f,validation.signalQuality(trimmed[f],trimmed.duration*1000)]));
 
       const r = store.saveCapture(trimmed);
       if (r.ok === false) { app.showToast('⚠ 저장 공간 부족 — 저장하지 못했습니다.'); return; }
       app.showToast(`${label} #${trimmed.take} 저장 · ${trimmed.duration}s`);
     }
 
-    /* 선택 구간 → drill 기준값. 기존 FREE CAPTURE 경로를 그대로
-       재사용한다 — configTab.startFromCapture()가 { values, imu }를
-       받으므로, 구간의 채널별 최대값을 대표값으로 넘긴다.
-       접지 동작에서는 평균보다 봉우리가 기준으로 의미가 있다. */
+    /* Keep the selected source interval and observed representative samples.
+       Registration is distinct from prescribing a training target. */
     function useAsReference() {
       const snapshot = { left: null, right: null };
       let any = false;
       for (const f of FOOT_IDS) {
         const seg = sliceOf(f);
         if (!seg.length) continue;
-        const peak = [0, 0, 0, 0];
-        let rs = 0, ps = 0, ys = 0;
-        seg.forEach(s => {
-          for (let c = 0; c < 4; c++) if (s[c + 1] > peak[c]) peak[c] = s[c + 1];
-          rs += s[5]; ps += s[6]; ys += s[7];
-        });
+        const representative=validation.referenceFromSegment(seg);
         snapshot[f] = {
-          values: [...peak, rs / seg.length, ps / seg.length, ys / seg.length],
-          imu: { roll: rs / seg.length, pitch: ps / seg.length, yaw: ys / seg.length },
+          values: representative.slice(1),
+          imu: { roll:representative[5],pitch:representative[6],yaw:representative[7] },
         };
         any = true;
       }
       if (!any) { app.showToast('선택 구간에 샘플이 없습니다.'); return; }
       snapshot.channels = [...(cap.channels || LEGACY_CAPTURE_CHANNELS)];
       snapshot.baseline = cap.baseline || null;
+      snapshot.context=cap.context?validation.copy(cap.context):null;
+      snapshot.title=cap.label;
+      snapshot.source={captureId:cap.captureId,startMs:selA,endMs:selB,method:'observed-median-total-v1',reviewNote:review.value,
+        markers:(cap.markers||[]).filter(m=>m.t>=selA&&m.t<=selB),
+        samples:Object.fromEntries(feet.map(f=>[f,sliceOf(f)]))};
       configTab.startFromCapture(snapshot);
       app.switchTab('config');
-      app.showToast('선택 구간의 채널별 최대값을 기준값으로 넘겼습니다.');
+      app.showToast('선택 구간과 측정 조건을 등록합니다. 훈련 목표는 추후 설정합니다.');
     }
 
     sync();
@@ -1850,6 +1957,7 @@ const liveTab = (() => {
     btnCapture.className   = 'btn btn-ok';
     btnCapture.textContent = '📸  캡처';
     btnCapture.onclick = () => {
+      if(!checkBaselineLinks()){app.showToast('수신 상태를 확인하고 baseline을 다시 측정하세요.');return;}
       const snapshot = session.stopFreeCapture();
       if (!snapshot || (!snapshot.left && !snapshot.right)) {
         app.showToast('캡처할 데이터가 없습니다 — 유닛을 연결하세요');
@@ -1858,6 +1966,9 @@ const liveTab = (() => {
       }
       snapshot.channels = [...currentChannels];
       snapshot.baseline = currentBaseline;
+      snapshot.context=contextSnapshot();
+      snapshot.title=validation.tasks[currentContext?.task]||'자세 캡처';
+      snapshot.source={method:'instant-snapshot-v1',capturedAt:new Date().toISOString(),baselineEvidence:validation.copy(baselineEvidence)};
       configTab.startFromCapture(snapshot);
       app.switchTab('config');
     };
@@ -1991,7 +2102,7 @@ const liveTab = (() => {
       if (!currentDrill && values) {
         const idx = currentChannels.indexOf(pid);
         dot.dataset.state = 'heat';
-        dot.dataset.heat = String(pressureEngine.heatLevel(deltas[idx] || 0));
+        dot.dataset.heat = String(pressureEngine.heatLevel((deltas[idx] || 0) * (currentContext?.heatGain || 1)));
         dot.style.setProperty('--heat-scale', String(1 + Math.min(0.75, (deltas[idx] || 0) / 700)));
       } else {
         dot.dataset.state = aType ? (aType === 'negative' ? 'alert-n' : 'alert-p') : 'ok';
@@ -2160,14 +2271,20 @@ const liveTab = (() => {
 
   function updateMotionMetrics() {
     if (mode !== 'motioncap') return;
+    const fresh=FOOT_IDS.every(f=>observed[f] && Date.now()-observed[f].t<600 && baselineEvidence?.[f]);
+    if(!fresh){
+      const lr=document.getElementById('motion-lr'),fr=document.getElementById('motion-fr');
+      if(lr)lr.textContent='양발 수신 필요';if(fr)fr.textContent='—';return;
+    }
     const m = pressureEngine.balance({
       left:{values:latest.left.values,baseline:currentBaseline.left},
       right:{values:latest.right.values,baseline:currentBaseline.right},
     }, currentChannels);
     const lr=document.getElementById('motion-lr');
     const fr=document.getElementById('motion-fr');
-    if(lr) lr.textContent=`${m.leftPct} / ${m.rightPct}`;
-    if(fr) fr.textContent=`${m.forePct} / ${m.rearPct}`;
+    const total=m.feet.left.total+m.feet.right.total;
+    if(lr) lr.textContent=total?`${m.leftPct} / ${m.rightPct}`:'부하 없음';
+    if(fr) fr.textContent=total?`${m.forePct} / ${m.rearPct}`:'—';
   }
 
   function updateOverallQuality() {
@@ -2303,6 +2420,12 @@ const liveTab = (() => {
 
   /* ── Public API ─────────────────────────────────────────── */
   return {
+    isCollecting:()=>collecting,
+    registrationComplete(){if(!session.isActive)renderIdle();},
+    observeSample(values,foot){
+      const sample={t:Date.now(),v:values.slice(0,4)};observed[foot]=sample;
+      if(baselineRun?.expected.includes(foot))baselineRun.samples[foot].push(sample);
+    },
     buildFootSVG,
 
     init(panelEl) {

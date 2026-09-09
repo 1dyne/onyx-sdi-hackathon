@@ -263,11 +263,20 @@ const session = (() => {
 
     /* 구간 표시. 나중에 파형에서 어디를 잘라야 할지 찾는 단서다 —
        찍을 당시에는 알지만 10분짜리 파형을 나중에 보면 모른다. */
-    markCapture() {
+    markCapture(label = '구간 표시', note = '') {
       if (!state.capturing) return null;
-      const m = { t: Date.now() - state.startTime };
+      const m = { t: Date.now() - state.startTime, label, note };
       captureMarkers.push(m);
       return m;
+    },
+
+    captureSnapshot() {
+      if (!state.capturing) return null;
+      const feet = FOOT_IDS.filter(f => state.feet[f].raw.length);
+      const out = {hz:null, fields:['t','fsr1','fsr2','fsr3','fsr4','roll','pitch','yaw'], startedAt:state.startTime,
+        duration:Math.round((Date.now()-state.startTime)/100)/10, feet, markers:captureMarkers.slice(),
+        truncated:FOOT_IDS.some(f=>state.feet[f].raw.length>=CAPTURE_MAX_SAMPLES)};
+      feet.forEach(f=>out[f]=state.feet[f].raw.slice()); return out;
     },
 
     stopCapture() {
@@ -278,7 +287,7 @@ const session = (() => {
 
       const feet = FOOT_IDS.filter(f => state.feet[f].raw.length);
       const out = {
-        hz: 10,
+        hz: null, // actual per-foot receive rates are stored in signalQuality
         fields: ['t','fsr1','fsr2','fsr3','fsr4','roll','pitch','yaw'],
         startedAt: state.startTime,
         duration: Math.round((Date.now() - state.startTime) / 100) / 10,

@@ -1443,3 +1443,26 @@ input[type=range] {
 .step-overlay svg { width:100%;height:105px;display:block; }
 .step-curve { fill:none;stroke-width:1.5;opacity:.72;vector-effect:non-scaling-stroke; }
 .step-curve.step-0{stroke:var(--heat-1)}.step-curve.step-1{stroke:var(--heat-2)}.step-curve.step-2{stroke:var(--heat-3)}.step-curve.step-3{stroke:var(--heat-4)}.step-curve.step-4{stroke:var(--heat-5)}
+
+/* Registration and validation surfaces */
+.validation-form { display:flex;flex-direction:column;gap:12px; }
+.validation-form small,.validation-summary { font-size:13px;line-height:1.6;overflow-wrap:anywhere; }
+.validation-summary,.baseline-status { white-space:pre-line; }
+.validation-summary strong,.baseline-status small {display:block;}
+.validation-form select { min-height:42px; }
+.validation-form textarea { min-height:80px; }
+.app-menu {position:relative;color:var(--header-text);margin-right:8px;}
+.app-menu summary {list-style:none;cursor:pointer;font-size:24px;width:28px;text-align:center;}
+.app-menu summary::-webkit-details-marker {display:none;}
+.app-menu .btn {position:absolute;top:36px;left:0;width:160px;z-index:20;background:var(--bg-card);color:var(--text);}
+.app-logo {margin-right:auto;}
+.btn-primary {background:var(--color-accent);border-color:var(--color-accent);color:var(--bg-base);}
+[data-theme="light"] .btn-primary {color:#fffef9;}
+.btn-primary:hover {background:var(--header-bg);border-color:var(--border-hi);color:var(--header-text);}
+.alert-banner.positive {background:color-mix(in srgb,var(--color-alert-p) 12%,var(--bg-card));border-color:var(--color-alert-p);color:var(--color-alert-p);}
+.alert-banner.negative {background:color-mix(in srgb,var(--color-alert-n) 12%,var(--bg-card));border-color:var(--color-alert-n);color:var(--color-alert-n);}
+.gauge-track,.compare-track {background:var(--border);}
+.gauge-fill,.compare-fill {background:var(--color-ok);}
+.btn-ref,.ref-banner {color:var(--color-alert-n);border-color:var(--color-alert-n);background:var(--bg-card);}
+.pp-id-text {fill:var(--text-dim);}
+@media(max-width:370px){.app-header{padding:0 8px;}.header-right{gap:4px;}.app-subtitle{font-size:7px;}.app-logo{font-size:16px;}.validation-form{padding:12px;}}

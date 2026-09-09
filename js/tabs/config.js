@@ -334,8 +334,7 @@ const configTab = (() => {
     panel.appendChild(audioDiv);
 
     /* ── 진단 / 개발 ───────────────────────────────────────── */
-    panel.appendChild(buildDiagnosticsSection());
-    panel.appendChild(buildDevSection());
+    // Diagnostics and cache controls are on the dedicated developer page.
 
     /* ── REF SAVE 안내 ─────────────────────────────────────── */
     const refNote = document.createElement('div');
@@ -866,7 +865,19 @@ const configTab = (() => {
     heading.className = 'section-heading';
     heading.textContent = draft.id ? 'CONFIG — 동작 수정' : 'CONFIG — 새 동작';
     panel.appendChild(heading);
-    panel.appendChild(buildStepDots(1));
+    if(!draft.referenceReviewRequired)panel.appendChild(buildStepDots(1));
+    if(draft.referenceReviewRequired){
+      panel.append(validation.node('div','ready-banner','참고 동작 등록: 측정 조건과 원본 구간을 보존합니다. 아래 등록 버튼으로 저장하면 TRAINING에서 확인할 수 있습니다. 훈련 목표·판정 설정은 이후 진행합니다.'));
+      if(draft.context)panel.append(validation.summary(draft.context));
+      const register=validation.node('button','btn btn-ok','참고 동작 등록 완료');
+      register.onclick=()=>{
+        if(!draft.title.trim()){app.showToast('동작 이름을 입력하세요.');return;}
+        if(!draft.id)draft.id=store.newDrillId();
+        try{store.saveDrill({...draft,registeredAt:new Date().toISOString()});resetDraft();step=0;liveTab.registrationComplete();renderHub();app.showToast('동작 등록 완료 · 원본과 측정 조건 보존');}
+        catch{validation.download({format:'onyx-sdi-backup',version:BUILD_VERSION,drills:[draft],sessions:[],captures:[]},'onyx-registration-rescue.json');app.showToast('저장 공간 부족 · 등록 원본을 다운로드했습니다.');}
+      };
+      panel.append(register);
+    }
 
     // Capture origin banner — one line per captured foot, so a
     // single-foot capture is obvious rather than silently partial.
@@ -884,8 +895,8 @@ const configTab = (() => {
       });
 
       capBanner.innerHTML =
-        '<span style="color:var(--color-accent-text);">📸 FREE CAPTURE</span> — ' +
-        '캡처된 발의 값이 각각 기준값으로 설정됩니다.<br>' +
+        '<span style="color:var(--color-accent-text);">캡처 참고값</span> — ' +
+        '원본과 연결해 저장됩니다. 훈련 목표는 별도 설정합니다.<br>' +
         `<span style="font-family:var(--font-mono);font-size:10px;opacity:.7;line-height:1.6;">${lines.join('<br>')}</span>`;
       panel.appendChild(capBanner);
     }
@@ -902,7 +913,12 @@ const configTab = (() => {
     input.placeholder = '예: 정적 하중 유지';
     input.value       = draft.title;
     input.maxLength   = 40;
+    input.oninput=()=>{draft.title=input.value;};
     panel.appendChild(input);
+    if(draft.referenceReviewRequired){
+      const cancel=validation.node('button','btn btn-ghost','← 취소');
+      cancel.onclick=()=>{resetDraft();renderHub();};panel.append(cancel);return;
+    }
 
     const lbl2 = document.createElement('div');
     lbl2.className = 'form-label';
@@ -1310,6 +1326,7 @@ const configTab = (() => {
   /* ── Edit entry point ───────────────────────────────────── */
   function editDrill(drill) {
     draft = {
+      ...drill,
       id:                 drill.id,
       title:              drill.title,
       type:               drill.type,
@@ -1335,6 +1352,47 @@ const configTab = (() => {
     },
 
     editDrill,
+    stopDiagnostics(){clearInterval(rawTimer);rawTimer=null;},
+    renderDeveloper(target) {
+      target.innerHTML='';
+      const back=validation.node('button','btn btn-ghost','← 대시보드');back.onclick=()=>app.switchTab('live');
+      target.append(back,validation.node('div','section-heading','🛠 개발 도구'),buildDiagnosticsSection(),buildDevSection());
+      startRawMonitor();
+      const data=validation.node('div','card validation-form');data.append(validation.node('strong','','데이터 백업 / 실험 기록 초기화'));
+      const counts=()=>`동작 ${store.getDrills().length} · 세션 ${store.getSessions().length} · 캡처 ${store.getCaptures().length}`;
+      const status=validation.node('div','',counts());data.append(status);
+      data.append(validation.node('small','','이 기기·브라우저의 기록만 처리합니다. 먼저 JSON을 다운로드하고 파일이 저장되었는지 확인하세요. 연결·오디오 설정은 유지됩니다.'));
+      const backup=validation.node('button','btn btn-ok','전체 기록 JSON 백업');
+      const reset=validation.node('button','btn btn-danger','백업 후 실험 기록 초기화'); reset.disabled=true;
+      let backupText=null;
+      backup.onclick=()=>{const payload=store.exportAll();backupText=JSON.stringify({drills:payload.drills,sessions:payload.sessions,captures:payload.captures});validation.download(payload,`onyx-backup-${Date.now()}.json`);reset.disabled=false;};
+      reset.onclick=async()=>{
+        if(session.isActive){app.showToast('진행 중인 측정을 먼저 종료하세요.');return;}
+        if(!confirm(`${counts()}\n이 브라우저의 동작·세션·캡처를 초기화합니다. 백업 JSON 파일이 저장되었는지 확인했나요?`))return;
+        const current=store.exportAll();
+        if(backupText!==JSON.stringify({drills:current.drills,sessions:current.sessions,captures:current.captures})){app.showToast('백업 후 기록이 변경되었습니다. 다시 백업하세요.');reset.disabled=true;return;}
+        store.resetExperimentRecords();status.textContent=counts();reset.disabled=true;
+        app.showToast('실험 기록 초기화 완료 · 백업 JSON으로 복원할 수 있습니다.');
+      };
+      data.append(backup,reset);target.append(data);
+      const recover=validation.node('div','card validation-form');target.append(recover);
+      validation.pending('get').then(cap=>{
+        if(!cap){recover.textContent='복구 대기 캡처 없음';return;}
+        recover.append(validation.node('strong','',`복구 대기: ${cap.label} · ${cap.duration}s (마지막 임시저장까지)`));
+        const exportPending=validation.node('button','btn btn-ok','복구 원본 다운로드');
+        exportPending.onclick=()=>validation.download({format:'onyx-sdi-backup',version:BUILD_VERSION,captures:[cap],sessions:[],drills:[]},`onyx-recovery-${cap.captureId}.json`);
+        const restore=validation.node('button','btn btn-ok','캡처 목록으로 복구');
+        restore.onclick=async()=>{
+          if(session.isActive){app.showToast('측정을 종료하세요');return;}
+          const saved=store.getCapture(cap.captureId);
+          if(saved && saved.duration>=cap.duration){await validation.pending('delete');recover.textContent='이미 저장된 더 긴 기록을 유지했습니다. 중복 임시저장본을 정리했습니다.';return;}
+          if(store.saveCapture({...cap,interrupted:true}).ok){await validation.pending('delete');recover.textContent='복구 완료 · 캡처 목록에서 확인하세요';}else app.showToast('공간 부족 · 원본을 다운로드하세요');
+        };
+        const clear=validation.node('button','btn btn-danger','복구본 삭제');
+        clear.onclick=async()=>{if(session.isActive)return;if(confirm('복구본을 다운로드했나요? 이 임시저장본을 삭제합니다.')){await validation.pending('delete');recover.textContent='복구본 삭제 완료';}};
+        recover.append(exportPending,restore,clear);
+      }).catch(()=>recover.textContent='임시저장 공간에 접근할 수 없습니다. 캡처를 바로 내보내세요.');
+    },
 
     // Entry point from FREE CAPTURE: pre-fill draft with captured values
     /* snapshot: { left: {values, imu}|null, right: {values, imu}|null }
@@ -1347,6 +1405,10 @@ const configTab = (() => {
       };
       draft.channels = [...(snapshot?.channels || DEFAULT_CAPTURE_CHANNELS)];
       draft.baseline = snapshot?.baseline || null;
+      draft.context = snapshot?.context || null;
+      draft.source = snapshot?.source || null;
+      draft.title = snapshot?.title || '';
+      draft.referenceReviewRequired = true;
       draft.points = draft.channels.map((pid, channel) => ({ ...makeCapturedPoint(pid), channel }));
       step = 1;
       renderStep1();

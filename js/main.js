@@ -3,6 +3,10 @@
   let activeTab = 'live';
 
   function switchTab(name) {
+    if (name !== activeTab && liveTab.isCollecting?.()) {
+      showToast('측정을 마치거나 취소한 뒤 화면을 이동하세요.'); return;
+    }
+    configTab.stopDiagnostics?.();
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
     activeTab = name;
@@ -10,6 +14,7 @@
     if (name === 'training') trainingTab.render();
     if (name === 'config')   configTab.render();
     if (name === 'log')      logTab.render();
+    if (name === 'developer') configTab.renderDeveloper(document.getElementById('tab-developer'));
   }
 
   /* ── Per-foot Bluetooth chips ───────────────────────────────
@@ -117,7 +122,7 @@
     el.textContent = `v${BUILD_VERSION}${pwa.isDevMode ? ' · DEV' : ''}`;
     el.classList.toggle('dev', pwa.isDevMode);
     el.title = pwa.isDevMode
-      ? '개발 모드 — Service Worker 우회 중 (CONFIG에서 해제)'
+      ? '개발 모드 — Service Worker 우회 중 (⋮ → 🛠 개발 도구에서 해제)'
       : `빌드 ${BUILD_VERSION} (${BUILD_DATE})`;
   }
 
@@ -166,6 +171,12 @@
 
     // Theme button
     document.getElementById('btn-theme').onclick = toggleTheme;
+    document.getElementById('btn-developer').onclick = () => {
+      document.querySelector('.app-menu').open=false; switchTab('developer');
+    };
+    validation.pending('get').then(pending => {
+      if (pending) showToast('복구 가능한 캡처가 있습니다 · ⋮ → 🛠 개발 도구');
+    }).catch(()=>showToast('임시저장 공간을 열 수 없습니다. 캡처 후 바로 내보내세요.'));
 
     // Per-foot connect chips
     FOOT_IDS.forEach(foot => {
@@ -176,7 +187,7 @@
 
     // BT callbacks — the foot travels with every sample.
     bluetooth.onStatus = handleStatus;
-    bluetooth.onData   = (values, foot) => session.feed(values, foot);
+    bluetooth.onData   = (values, foot) => { liveTab.observeSample?.(values,foot); session.feed(values, foot); };
 
     // Show initial tab
     switchTab('live');

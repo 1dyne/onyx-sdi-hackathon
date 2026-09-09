@@ -90,6 +90,7 @@ const trainingTab = (() => {
     const typeLabel = DRILL_TYPES[drill.type]?.label || drill.type;
     const ptNames   = drill.points.map(p => p.id).join(' · ');
     sub.textContent = `${typeLabel}  ·  ${ptNames}`;
+    if(drill.referenceReviewRequired)sub.textContent+=' · 등록 완료 / 훈련 목표 설정 대기';
 
     const badge = document.createElement('span');
     badge.className = `badge badge-${drill.type}`;
@@ -108,6 +109,7 @@ const trainingTab = (() => {
     card.appendChild(arrow);
 
     card.onclick = () => {
+      if(drill.referenceReviewRequired){app.showToast('등록 데이터는 보존되었습니다. 동작 단계별 훈련 목표를 설정한 뒤 훈련에 사용합니다.');return;}
       if (session.isActive) {
         alert('진행 중인 세션을 먼저 종료해주세요.');
         return;

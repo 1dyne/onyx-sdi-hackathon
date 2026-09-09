@@ -93,6 +93,11 @@ const store = (() => {
       localStorage.setItem(K.settings, JSON.stringify(merged));
     },
 
+    resetExperimentRecords() {
+      // Explicit per-browser action after exporting; never run on upgrade.
+      [K.drills,K.sessions,K.captures].forEach(key=>localStorage.removeItem(key));
+    },
+
     /* ── Drills ─────────────────────────────────────────── */
     getDrills() {
       return load(K.drills).map(d => {

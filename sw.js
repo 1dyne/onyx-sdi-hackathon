@@ -39,6 +39,7 @@ const SHELL_ASSETS = [
   './js/pwa.js',
   './js/constants.js',
   './js/pressure.js',
+  './js/validation.js',
   './js/store.js',
   './js/audio.js',
   './js/bluetooth.js',
