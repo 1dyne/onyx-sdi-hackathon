@@ -16,6 +16,8 @@ assert.deepEqual(p.baselineFromSamples([
 
 assert.deepEqual(p.deltaValues([20,10,50,35],[10,20,30,40]), [10,0,20,0]);
 assert.equal(p.heatLevel(0),0);
+assert.equal(p.heatLevel(2),0);
+assert.equal(p.heatLevel(3),1,'3-count shoe-compressed change must be visible');
 assert.equal(p.heatLevel(9),1);
 assert.equal(p.heatLevel(600),5);
 

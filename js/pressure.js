@@ -18,9 +18,10 @@ const pressureEngine = (() => {
   }
 
   /* Fixed bands make the same pressure change the same colour over time.
-     Zero remains neutral; blue means the sensor is actually active. */
+     Changes below 3 ADC counts are treated as noise. This deliberately
+     keeps shoe-compressed sensors useful when only 3–5 counts remain. */
   function heatLevel(delta) {
-    if (delta <= 8) return 0;
+    if (delta < 3) return 0;
     if (delta < 80) return 1;
     if (delta < 180) return 2;
     if (delta < 320) return 3;

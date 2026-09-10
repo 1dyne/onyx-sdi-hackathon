@@ -933,7 +933,7 @@ const liveTab = (() => {
         expected.forEach(f=>{currentBaseline[f]=baselineEvidence[f].baseline;});
         currentContext={...currentContext,conditionId:validation.id(),measuredAt:new Date().toISOString()};
         session.stopFreeCapture();
-        status.textContent=expected.map(f=>`${FOOT_LABEL[f]} ${currentBaseline[f].join(' / ')} · ${baselineEvidence[f].count}개 수신 · 흔들림 ${baselineEvidence[f].spread.join('/')} · 남은 범위 ${baselineEvidence[f].headroom.join('/')}`).join('\n');
+        status.textContent=expected.map(f=>`${FOOT_LABEL[f]} ${currentBaseline[f].join(' / ')} · ${baselineEvidence[f].count}개 수신 · 흔들림 ${baselineEvidence[f].spread.join('/')} · 남은 범위 ${baselineEvidence[f].headroom.join('/')}${baselineEvidence[f].warnings.length?` · ${baselineEvidence[f].warnings.join(' · ')}`:''}`).join('\n');
         status.append(validation.node('small','','신호 검증 통과 · 의료 정확도를 뜻하지 않습니다. 기준값과 남은 범위를 확인하세요.'));
         measure.textContent='측정 확인 · 캡처 화면으로'; measure.disabled=false;back.disabled=false;
         measure.onclick=()=>kind==='motion'?renderCapture(channels,currentBaseline):renderFreeCapture(channels,currentBaseline);
