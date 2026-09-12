@@ -6,6 +6,18 @@
    runs twice per sample (once per foot) with no cross-talk. The gait
    checker is the one stateful piece and it is handed out as an
    instance, one per foot, created by session.js.
+
+   ── UNITS (v2.1) ────────────────────────────────────────────
+   Everything here works in BASELINE-SUBTRACTED counts, never raw ADC.
+   Before v2.1 session.js handed over raw values while the thresholds
+   produced by CONFIG were already deltas, so the two sides of every
+   comparison were in different units. With a shoe pre-loading the
+   sensors to ~780 that made positive points unreachable and negative
+   points permanently breached: the app alarmed on every sample and
+   scored 0 while nothing was wrong with the patient.
+
+   session.js subtracts that foot's baseline before calling in. A drill
+   cannot start without a baseline, so there is no raw-value path left.
    ───────────────────────────────────────────────────────────── */
 const alertEngine = (() => {
 
@@ -24,6 +36,22 @@ const alertEngine = (() => {
     return getReference(point, foot) !== null;
   }
 
+  /* ── Absolute THR lookup ────────────────────────────────────
+     `thr` is { left, right } as of v2.1. The two units are separate
+     pieces of hardware in separate shoes, so they sit at different
+     pre-loads and a single shared number cannot be right for both:
+     one foot alarms constantly while the other never does.
+
+     Drills saved before v2.1 hold one number. It is read for both feet
+     rather than discarded, which is exactly how they already behaved,
+     and store.js migrates them on load. */
+  function getThr(point, foot) {
+    const thr = point.thr;
+    if (thr === null || thr === undefined) return 0;
+    if (typeof thr === 'number') return thr;
+    return thr[foot] ?? 0;
+  }
+
   /* ── Effective THR: 절대값 vs 기준값% ───────────────────────
      Percent mode needs a reference for THIS foot. When only one foot
      has been calibrated the other silently falls back to its absolute
@@ -33,10 +61,13 @@ const alertEngine = (() => {
       const ref = getReference(point, foot);
       if (ref !== null) return Math.round(ref * (point.thrPercent / 100));
     }
-    return point.thr;
+    return getThr(point, foot);
   }
 
-  /* ── Accuracy vs reference (null if this foot has no reference) ── */
+  /* ── Accuracy vs reference (null if this foot has no reference) ──
+     `currentValues` is delta, and so is the reference it is divided
+     by. Feeding raw values in here used to produce figures like 520%,
+     which sailed past the success threshold on every sample. */
   function calcAccuracy(points, currentValues, foot) {
     const refPoints = points.filter(p => hasReference(p, foot));
     if (!refPoints.length) return null;
@@ -49,8 +80,9 @@ const alertEngine = (() => {
   }
 
   /* ── Main check: returns { alerts, accuracy } ───────────────
-     Audio is orchestrated by session.js which has full context
-     (gait errors + alerts + accuracy all in one place).          */
+     `values` is baseline-subtracted, index 0-3 per the drill's
+     channel map. Audio is orchestrated by session.js which has full
+     context (gait errors + alerts + accuracy all in one place).   */
   function check(drill, values, foot) {
     const alerts = [];
     for (const pt of drill.points) {
@@ -86,7 +118,12 @@ const alertEngine = (() => {
 
   /* ── Gait sequence checker factory ─────────────────────────────
      Stateful — call once per foot. Timing is wall-clock, so a foot
-     streaming at a different rate is judged identically. */
+     streaming at a different rate is judged identically.
+
+     Values arrive baseline-subtracted, so GAIT_ACTIVE_THR means "this
+     much load ON TOP of the resting pre-load". Judged against raw
+     counts a shoe alone kept every group permanently active, which
+     made the sequence checker report an error on every sample. */
   function createGaitChecker(points = null) {
     let phase           = 0;
     let phaseActiveTime = 0;
@@ -170,6 +207,7 @@ const alertEngine = (() => {
   return {
     check,
     checkYaw,
+    getThr,
     getEffectiveThr,
     getReference,
     hasReference,

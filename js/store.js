@@ -4,7 +4,14 @@ const store = (() => {
     sessions: 'onyxSDI_sessions',
     captures: 'onyxSDI_captures',
     settings: 'onyxSDI_settings',
+    trials:   'onyxSDI_baselineTrials',
   };
+
+  /* Baseline 시도 기록. 통과한 것과 걸린 것을 똑같이 남긴다.
+     신발 착용 한계값을 데이터로 정하려면 실패한 측정이 오히려 필요한
+     쪽이라, 게이트 결과와 무관하게 전부 쌓는다. 한 건이 원시 샘플
+     30개 남짓이라 200건을 담아도 1MB에 한참 못 미친다. */
+  const TRIAL_MAX = 200;
 
   const SETTINGS_DEFAULTS = {
     audioVolume:         0.5,
@@ -22,6 +29,15 @@ const store = (() => {
     // Stereo panning is how left/right is told apart by ear without
     // doubling the number of alert sounds.
     audioStereo:         true,
+
+    /* ── Baseline 흔들림 한계 (ADC 카운트, P90-P10) ───────────
+       맨발과 신발 착용을 따로 둔다. 신발은 센서를 700~800까지 눌러놓고
+       시작하므로, 같은 자세로 가만히 있어도 폭이 맨발보다 훨씬 크게
+       나온다. 35는 맨발 기준 초기값이며 신발 쪽은 아직 검증되지 않아
+       같은 값에서 출발한다 — 쌓인 시도 기록을 tools/baseline-limit.cjs로
+       분석해 이 값을 갱신하는 것이 의도된 경로다. */
+    spreadLimitNone:     35,
+    spreadLimitShoes:    35,
 
     // Escape hatches for the device chooser (see bluetooth.js).
     bleAcceptAll:        false,
@@ -52,14 +68,24 @@ const store = (() => {
      A drill saved before v2.0 holds one calibration taken with one
      unit; it is kept as the LEFT reference rather than discarded, so
      existing drills stay usable and the user only has to re-calibrate
-     the foot that has none. */
+     the foot that has none.
+     v2.1 splits `thr` the same way. An old single number applied to
+     both feet, so it is copied to both and behaviour is unchanged
+     until the user edits one side. */
   function migratePoint(pt) {
     const base = Object.assign(
-      { reference: null, thrMode: 'absolute', thrPercent: 80 },
+      { reference: null, thr: 0, thrMode: 'absolute', thrPercent: 80 },
       pt,
     );
     base.reference = normaliseReference(base.reference);
+    base.thr       = normaliseThr(base.thr);
     return base;
+  }
+
+  function normaliseThr(thr) {
+    if (typeof thr === 'number')           return { left: thr, right: thr };
+    if (thr === null || thr === undefined) return { left: 0, right: 0 };
+    return { left: thr.left ?? 0, right: thr.right ?? 0 };
   }
 
   function normaliseReference(ref) {
@@ -95,8 +121,37 @@ const store = (() => {
 
     resetExperimentRecords() {
       // Explicit per-browser action after exporting; never run on upgrade.
-      [K.drills,K.sessions,K.captures].forEach(key=>localStorage.removeItem(key));
+      [K.drills,K.sessions,K.captures,K.trials].forEach(key=>localStorage.removeItem(key));
     },
+
+    /* ── Baseline 시도 기록 ─────────────────────────────────── */
+    getBaselineTrials() { return load(K.trials); },
+
+    saveBaselineTrial(trial) {
+      const list = this.getBaselineTrials();
+      list.push(trial);
+      while (list.length > TRIAL_MAX) list.shift();
+      try { save(K.trials, list); return { ok: true, count: list.length }; }
+      catch (err) {
+        if (!isQuotaError(err)) throw err;
+        // 원시 샘플을 떼면 숫자는 남는다. 한계값 계산에는 그것으로 충분하다.
+        list.forEach(t => { delete t.samples; });
+        try { save(K.trials, list); return { ok: true, count: list.length, droppedSamples: true }; }
+        catch (e) { if (!isQuotaError(e)) throw e; return { ok: false, reason: 'quota' }; }
+      }
+    },
+
+    /* 측정 시점에는 게이트 결과만 알 수 있다. 치료사가 사유를 남기고
+       진행했는지는 그 뒤에 정해지므로 같은 기록에 덧쓴다. */
+    updateBaselineTrial(trialId, patch) {
+      const list = this.getBaselineTrials();
+      const t = list.find(x => x.trialId === trialId);
+      if (!t) return false;
+      Object.assign(t, patch);
+      try { save(K.trials, list); return true; } catch (err) { if (!isQuotaError(err)) throw err; return false; }
+    },
+
+    clearBaselineTrials() { save(K.trials, []); },
 
     /* ── Drills ─────────────────────────────────────────── */
     getDrills() {
@@ -217,6 +272,7 @@ const store = (() => {
         drills:   this.getDrills(),
         sessions: this.getSessions(),
         captures: this.getCaptures(),
+        baselineTrials: this.getBaselineTrials(),
         settings: (() => {
           // 키는 백업에 넣지 않는다. 파일이 카톡·메일로 돌아다닌다.
           const { coachApiKey, ...rest } = this.getSettings();
@@ -237,6 +293,7 @@ const store = (() => {
         save(K.drills, []);
         save(K.sessions, []);
         save(K.captures, []);
+        save(K.trials, []);
       }
 
       const drills = this.getDrills();
@@ -267,6 +324,15 @@ const store = (() => {
       catch (err) {
         if (!isQuotaError(err)) throw err;
         throw new Error('저장 공간이 부족합니다. 기존 캡처를 내보낸 뒤 정리하고 다시 시도하세요.');
+      }
+
+      if (data.baselineTrials?.length) {
+        const trials = this.getBaselineTrials();
+        for (const t of data.baselineTrials) {
+          if (!trials.some(x => x.trialId === t.trialId)) trials.push(t);
+        }
+        while (trials.length > TRIAL_MAX) trials.shift();
+        try { save(K.trials, trials); } catch (err) { if (!isQuotaError(err)) throw err; }
       }
 
       if (data.settings) {

@@ -44,10 +44,17 @@ const configTab = (() => {
     return FOOT_IDS.find(f => draft.captured[f]) || null;
   }
 
+  /* `thr` is { left, right } since v2.1 and is expressed in counts
+     above that foot's baseline, matching what session.js judges on. */
+  function thrOf(pt, foot) {
+    return typeof pt.thr === 'number' ? pt.thr : (pt.thr?.[foot] ?? 0);
+  }
+
   function makeDefaultPoint(pid) {
+    const thr = PRESSURE_POINTS[pid].defaultDirection === 'positive' ? 300 : 150;
     return {
       id:         pid,
-      thr:        PRESSURE_POINTS[pid].defaultDirection === 'positive' ? 300 : 150,
+      thr:        { left: thr, right: thr },
       direction:  PRESSURE_POINTS[pid].defaultDirection,
       reference:  { left: null, right: null },
       thrMode:    'absolute',
@@ -75,9 +82,16 @@ const configTab = (() => {
     const baseVal = primary ? (reference[primary] ?? 0) : 0;
     const hasRef  = reference.left !== null || reference.right !== null;
 
+    /* Each foot's absolute threshold comes from its OWN capture. The
+       two units sit at different pre-loads, so deriving both from one
+       foot is how a drill ends up unusable on the other side. A foot
+       that was not captured falls back to the one that was. */
+    const thr = {};
+    for (const f of FOOT_IDS) thr[f] = Math.round((reference[f] ?? baseVal) * 0.8);
+
     return {
       id:         pid,
-      thr:        Math.round(baseVal * 0.8),
+      thr,
       direction:  PRESSURE_POINTS[pid].defaultDirection,
       reference,
       thrMode:    hasRef ? 'percent' : 'absolute',
@@ -1099,6 +1113,62 @@ const configTab = (() => {
     panel.appendChild(nav);
   }
 
+  /* ── Baseline 흔들림 한계 ─────────────────────────────────
+     치료사가 만질 값이 아니라 장비 쪽 보정값이라 개발 도구에 둔다.
+
+     맨발과 신발 착용을 따로 잡는 이유는 단순하다. 신발은 센서를
+     700~800까지 눌러놓고 시작해서, 같은 자세로 가만히 있어도 폭이
+     맨발보다 크게 나온다. 한 숫자로 묶으면 둘 중 하나는 반드시
+     틀린 값이 된다.
+
+     여기 넣을 숫자는 감이 아니라 쌓인 시도 기록에서 나온다.
+     BASELINE 화면에서 기록을 내보내고 tools/baseline-limit.cjs에
+     넣으면 착용 상태별 분포와 권장값이 나온다. */
+  function buildSpreadLimitSection() {
+    const card = validation.node('div','card validation-form');
+    card.append(validation.node('strong','','BASELINE 흔들림 한계 (ADC 카운트)'));
+    const trials = store.getBaselineTrials();
+    card.append(validation.node('small','',
+      `채널별 P90-P10이 이 값을 넘으면 경고로 표시하고, 사유를 남기면 진행할 수 있습니다. 측정을 막지는 않습니다. 현재 시도 기록 ${trials.length}건.`));
+
+    const rows = [
+      ['spreadLimitNone',  '맨발 · 미착용'],
+      ['spreadLimitShoes', '신발 착용'],
+    ];
+    const inputs = {};
+    for (const [key, label] of rows) {
+      const wrap = validation.node('label','form-group');
+      wrap.append(validation.node('span','form-label',label));
+      const input = validation.node('input','form-input');
+      input.type='number'; input.min=1; input.max=MAX_SENSOR_VAL; input.step=1;
+      input.value = store.getSettings()[key];
+      inputs[key]=input;
+      wrap.append(input);
+      card.append(wrap);
+    }
+
+    const save = validation.node('button','btn btn-ok','한계값 저장');
+    save.onclick = () => {
+      const patch = {};
+      for (const [key] of rows) {
+        const v = Math.round(Number(inputs[key].value));
+        if (!Number.isFinite(v) || v < 1 || v > MAX_SENSOR_VAL) {
+          app.showToast(`1에서 ${MAX_SENSOR_VAL} 사이의 값을 넣으세요.`); return;
+        }
+        patch[key] = v;
+      }
+      store.saveSettings(patch);
+      app.showToast(`한계값 저장 · 맨발 ${patch.spreadLimitNone} / 신발 ${patch.spreadLimitShoes}`);
+    };
+    const reset = validation.node('button','btn btn-ghost','초기값(35)으로');
+    reset.onclick = () => {
+      for (const [key] of rows) inputs[key].value = validation.DEFAULT_MAX_SPREAD;
+    };
+    card.append(save, reset);
+    card.append(validation.node('small','','넣을 숫자는 BASELINE 화면에서 시도 기록을 내보낸 뒤 tools/baseline-limit.cjs로 뽑습니다. 기록에는 적용된 한계가 함께 남으므로 나중에 어떤 값으로 판정했는지 되짚을 수 있습니다.'));
+    return card;
+  }
+
   /* ══════════════════════════════════════════════════════════
      WIZARD — Step 3: 압점별 설정 + 배치 알림 + 저장
   ══════════════════════════════════════════════════════════ */
@@ -1158,26 +1228,65 @@ const configTab = (() => {
 
       const absLbl = document.createElement('div');
       absLbl.className = 'form-label';
-      absLbl.textContent = 'THR 임계값 (0 – 1023)';
+      absLbl.textContent = 'THR 임계값 · baseline을 뺀 값 (0 – 1023)';
       absSection.appendChild(absLbl);
 
-      const absRow = document.createElement('div');
-      absRow.className = 'slider-row';
-      const absSlider = document.createElement('input');
-      absSlider.type  = 'range';
-      absSlider.min   = 0;
-      absSlider.max   = MAX_SENSOR_VAL;
-      absSlider.value = pt.thr;
-      const absVal = document.createElement('span');
-      absVal.className = 'slider-val';
-      absVal.textContent = pt.thr;
-      absSlider.addEventListener('input', () => {
-        pt.thr = parseInt(absSlider.value);
-        absVal.textContent = pt.thr;
+      /* 좌우를 따로 잡는다. 두 유닛은 서로 다른 신발에 들어간 별개
+         기구라 장착 압력이 다르고, 한 숫자로 묶으면 한쪽은 계속
+         울리고 다른 쪽은 전혀 안 울린다. 기본은 함께 움직이도록
+         묶어두고, 필요할 때 풀어서 따로 잡는다. */
+      const linkWrap = document.createElement('label');
+      linkWrap.className = 'form-group thr-link';
+      const linkBox = document.createElement('input');
+      linkBox.type = 'checkbox';
+      linkBox.checked = thrOf(pt, FOOT.LEFT) === thrOf(pt, FOOT.RIGHT);
+      const linkTxt = document.createElement('span');
+      linkTxt.className = 'form-label';
+      linkTxt.textContent = '좌우 같은 값 사용';
+      linkWrap.appendChild(linkBox);
+      linkWrap.appendChild(linkTxt);
+      absSection.appendChild(linkWrap);
+
+      const absControls = {};
+      FOOT_IDS.forEach(f => {
+        const absRow = document.createElement('div');
+        absRow.className = 'slider-row';
+        const tag = document.createElement('span');
+        tag.className = 'slider-tag';
+        tag.textContent = FOOT_LABEL[f];
+        const absSlider = document.createElement('input');
+        absSlider.type  = 'range';
+        absSlider.min   = 0;
+        absSlider.max   = MAX_SENSOR_VAL;
+        absSlider.value = thrOf(pt, f);
+        const absVal = document.createElement('span');
+        absVal.className = 'slider-val';
+        absVal.textContent = thrOf(pt, f);
+        absControls[f] = { slider: absSlider, out: absVal };
+        absSlider.addEventListener('input', () => {
+          const v = parseInt(absSlider.value);
+          const targets = linkBox.checked ? FOOT_IDS : [f];
+          targets.forEach(t => {
+            pt.thr[t] = v;
+            absControls[t].slider.value = v;
+            absControls[t].out.textContent = v;
+          });
+        });
+        absRow.appendChild(tag);
+        absRow.appendChild(absSlider);
+        absRow.appendChild(absVal);
+        absSection.appendChild(absRow);
       });
-      absRow.appendChild(absSlider);
-      absRow.appendChild(absVal);
-      absSection.appendChild(absRow);
+
+      linkBox.addEventListener('change', () => {
+        if (!linkBox.checked) return;
+        const v = thrOf(pt, FOOT.LEFT);
+        FOOT_IDS.forEach(t => {
+          pt.thr[t] = v;
+          absControls[t].slider.value = v;
+          absControls[t].out.textContent = v;
+        });
+      });
 
       // ── 기준값 % 슬라이더 ──────────────────────────────────
       const pctSection = document.createElement('div');
@@ -1356,7 +1465,7 @@ const configTab = (() => {
     renderDeveloper(target) {
       target.innerHTML='';
       const back=validation.node('button','btn btn-ghost','← 대시보드');back.onclick=()=>app.switchTab('live');
-      target.append(back,validation.node('div','section-heading','🛠 개발 도구'),buildDiagnosticsSection(),buildDevSection());
+      target.append(back,validation.node('div','section-heading','🛠 개발 도구'),buildDiagnosticsSection(),buildDevSection(),buildSpreadLimitSection());
       startRawMonitor();
       const data=validation.node('div','card validation-form');data.append(validation.node('strong','','데이터 백업 / 실험 기록 초기화'));
       const counts=()=>`동작 ${store.getDrills().length} · 세션 ${store.getSessions().length} · 캡처 ${store.getCaptures().length}`;

@@ -29,6 +29,11 @@ const liveTab = (() => {
   let currentContext = null;
   let baselineEvidence = null;
   let baselineRun = null;
+  /* 훈련 판정용 영점. 측정하기 전에는 null이고, 그동안은 훈련을
+     시작할 수 없다. renderIdle로 돌아가면 버린다 — 신발을 벗거나
+     기구를 다시 채운 뒤의 옛 영점으로 판정하는 것이 이 화면에서
+     나올 수 있는 가장 조용한 오류다. */
+  let sessionBaseline = null;
   let collecting = false;
   const observed = {left:null,right:null};
 
@@ -325,6 +330,8 @@ const liveTab = (() => {
   function renderIdle() {
     mode = 'idle';
     currentDrill = null;
+    sessionBaseline = null;
+    baselineEvidence = null;
     panel.innerHTML = '';
 
     const hdr = document.createElement('div');
@@ -535,10 +542,13 @@ const liveTab = (() => {
     }
     if (note) note.textContent = '';
 
-    // ── Weight distribution ──
+    /* ── Weight distribution ──
+       영점을 뺀 값으로 센다. 원시값으로 더하면 양발의 장착 압력이
+       합계를 지배해서, 실제로 한쪽에 실려 있어도 50:50에 가깝게
+       나온다. 신발을 신으면 그 장착 압력이 합계의 대부분이다. */
     const drill = currentDrill;
-    const lTot  = alertEngine.totalPressure(drill, latest.left.values);
-    const rTot  = alertEngine.totalPressure(drill, latest.right.values);
+    const lTot  = alertEngine.totalPressure(drill, pressureEngine.deltaValues(latest.left.values, currentBaseline.left));
+    const rTot  = alertEngine.totalPressure(drill, pressureEngine.deltaValues(latest.right.values, currentBaseline.right));
     const bal   = alertEngine.balance(lTot, rTot);
 
     if (bal && balVal && balLeft) {
@@ -880,36 +890,136 @@ const liveTab = (() => {
     paint();
   }
 
-  function renderBaselineSetup(kind, channels) {
+  /* ── BASELINE 화면 ─────────────────────────────────────────
+     kind: 'motion' | 'free' | 'drill'. 앞의 둘은 캡처용 영점이고
+     'drill'은 훈련 판정용 영점이다. 측정과 게이트는 셋이 동일하다.
+
+     신발을 신으면 센서가 이미 눌린 채로 시작해서 흔들림 폭이 맨발
+     기준 한계(35)를 쉽게 넘는다. 예전에는 그 순간 측정 결과를 통째로
+     버리고 사유 한 줄만 띄웠는데, 그러면 무엇이 얼마나 흔들렸는지
+     화면에서 볼 수가 없고 한계값을 데이터로 다시 정할 수도 없었다.
+
+     그래서 이제 통과 여부와 무관하게 채널별 숫자를 항상 띄우고, 모든
+     시도를 기록으로 남긴다. 수신 자체가 부실한 경우(blocking)만 막고,
+     신호 조건 문제(advisory)는 사유를 남기고 진행할 수 있다. */
+  function renderBaselineSetup(kind, channels, drill = null) {
     mode = 'baseline';
     currentChannels = [...channels];
     currentBaseline = {left:[0,0,0,0], right:[0,0,0,0]};
+    baselineEvidence = null;
+    /* 재측정을 누른 순간 이전 영점은 무효다. 들고 있으면 측정을
+       중간에 그만두고 돌아갔을 때 훈련 시작 버튼이 열려 있는데
+       근거는 없는 상태가 된다. */
+    if (kind === 'drill') sessionBaseline = null;
     panel.innerHTML = '';
 
-    const heading = document.createElement('div'); heading.className='section-heading'; heading.textContent='BASELINE (영점)';
+    const heading = document.createElement('div'); heading.className='section-heading';
+    heading.textContent = kind === 'drill' ? 'BASELINE (영점) · 훈련 판정 기준' : 'BASELINE (영점)';
     panel.appendChild(heading);
     const guide = document.createElement('div'); guide.className='ready-banner';
-    guide.textContent='선택한 baseline 자세에서 발바닥 부하를 덜고 3초간 같은 자세로 대기하세요. 서 있는 체중 부하를 영점으로 잡지 않도록 자세를 확인하세요. 신발·고정 상태가 바뀌면 다시 측정하세요.';
+    guide.textContent = kind === 'drill'
+      ? '훈련 판정은 이 영점을 뺀 값으로 이루어집니다. 신발·고정 상태가 바뀌면 반드시 다시 측정하세요. 3초간 발바닥 부하를 덜고 대기합니다.'
+      : '선택한 baseline 자세에서 발바닥 부하를 덜고 3초간 같은 자세로 대기하세요. 서 있는 체중 부하를 영점으로 잡지 않도록 자세를 확인하세요. 신발·고정 상태가 바뀌면 다시 측정하세요.';
     panel.appendChild(guide);
     const conditions=validation.form(currentContext || validation.defaults());
     panel.appendChild(conditions.element);
     panel.appendChild(buildConnectCard());
 
     const status = document.createElement('div'); status.className='card card-sm baseline-status'; status.textContent='측정 준비'; panel.appendChild(status);
+    const readout = document.createElement('div'); readout.className='baseline-readouts'; panel.appendChild(readout);
+    const gate = document.createElement('div'); gate.className='baseline-gate'; panel.appendChild(gate);
+
     const actions = document.createElement('div'); actions.className='live-actions'; actions.style.gridTemplateColumns='1fr 1fr';
-    const back = document.createElement('button'); back.className='btn btn-ghost'; back.textContent='← 배치 수정';
-    back.onclick=()=>{currentContext=conditions.read();session.stopFreeCapture();renderCapturePlacement(kind);};
+    const back = document.createElement('button'); back.className='btn btn-ghost';
+    back.textContent = kind === 'drill' ? '← 훈련으로' : '← 배치 수정';
+    back.onclick=()=>{
+      currentContext=conditions.read();
+      session.stopFreeCapture();
+      if (kind === 'drill') renderReady(drill); else renderCapturePlacement(kind);
+    };
     const measure = document.createElement('button'); measure.className='btn btn-ok'; measure.textContent='3초 BASELINE 측정';
     actions.appendChild(back); actions.appendChild(measure); panel.appendChild(actions);
+
+    /* 카드는 건수를 들고 그려지므로 측정할 때마다 다시 그린다.
+       방금 모은 기록을 내보내려고 화면을 나갔다 들어와야 한다면
+       수집 자체를 안 하게 된다. */
+    let trialCard = buildTrialExportCard();
+    panel.appendChild(trialCard);
+    const refreshTrialCard = () => {
+      const next = buildTrialExportCard();
+      trialCard.replaceWith(next);
+      trialCard = next;
+    };
 
     bindSessionCallbacks();
     session.startFreeCapture();
     refreshConnectCard();
 
+    /* 신발을 신었는지에 따라 흔들림 한계가 다르다. 등록 폼의 footwear를
+       그대로 쓰므로 치료사가 따로 고를 것이 없다. */
+    function spreadLimit() {
+      const s = store.getSettings();
+      const v = currentContext?.footwear === 'shoes' ? s.spreadLimitShoes : s.spreadLimitNone;
+      return Number.isFinite(Number(v)) ? Number(v) : validation.DEFAULT_MAX_SPREAD;
+    }
+
+    /* 한 번의 측정에서 발마다 한 건씩. 게이트에 걸린 시도가 오히려
+       한계값을 정하는 데 필요한 쪽이라 결과와 무관하게 전부 남긴다. */
+    function recordTrials(expected, outcome) {
+      const ids = {};
+      expected.forEach(f => {
+        const e = baselineEvidence[f];
+        const trialId = validation.id();
+        ids[f] = trialId;
+        store.saveBaselineTrial({
+          trialId, at:new Date().toISOString(), schema:1,
+          buildVersion:BUILD_VERSION, kind, foot:f, outcome,
+          footwear:currentContext?.footwear ?? null,
+          task:currentContext?.task ?? null,
+          maxSpreadApplied:spreadLimit(),
+          baselinePosture:currentContext?.baselinePosture ?? null,
+          deviceId:e.deviceId, simulated:bluetooth.foot(f).isSimulating(),
+          channels:[...channels],
+          baseline:e.baseline, spread:e.spread, headroom:e.headroom, saturated:e.saturated,
+          count:e.count, hz:e.hz, spanMs:e.spanMs, maxGapMs:e.maxGapMs,
+          blocking:e.blocking, advisory:e.advisory, warnings:e.warnings, limits:e.limits,
+          samples:(e.samples||[]).map(x=>[x.t, ...x.v]),
+        });
+      });
+      return ids;
+    }
+
+    function proceed() {
+      session.stopFreeCapture();
+      if (kind === 'drill') renderReady(drill, currentBaseline);
+      else if (kind === 'motion') renderCapture(channels, currentBaseline);
+      else renderFreeCapture(channels, currentBaseline);
+    }
+
+    function accept(expected, trialIds, note) {
+      expected.forEach(f=>{currentBaseline[f]=baselineEvidence[f].baseline;});
+      currentContext={...currentContext, conditionId:validation.id(), measuredAt:new Date().toISOString(),
+        baselineGate:{
+          ok:expected.every(f=>baselineEvidence[f].ok),
+          advisory:Object.fromEntries(expected.map(f=>[f,baselineEvidence[f].advisory])),
+          acceptedNote:note||'',
+          acceptedAt:note?new Date().toISOString():null,
+        }};
+      if (note) { expected.forEach(f=>store.updateBaselineTrial(trialIds[f],{outcome:'accepted',note})); refreshTrialCard(); }
+      gate.innerHTML='';
+      gate.append(validation.node('small','', note
+        ? `게이트 미통과 · 사유를 기록하고 진행합니다: ${note}`
+        : '신호 검증 통과 · 의료 정확도를 뜻하지 않습니다. 기준값과 남은 범위를 확인하세요.'));
+      measure.textContent = kind==='drill' ? '영점 확인 · 훈련 화면으로' : '측정 확인 · 캡처 화면으로';
+      measure.disabled=false; back.disabled=false;
+      measure.onclick=proceed;
+    }
+
     measure.onclick = () => {
       if (!bluetooth.isAnyLive()) { app.showToast('먼저 L 또는 R 유닛을 연결하세요.'); return; }
       currentContext=conditions.read();
       measure.disabled = true; back.disabled = true; conditions.disable(true); collecting=true;
+      readout.innerHTML=''; gate.innerHTML='';
       const started=Date.now(), expected=bluetooth.liveFeet();
       const identities=Object.fromEntries(expected.map(f=>[f,bluetooth.foot(f).deviceId]));
       const samples = {left:[],right:[]};
@@ -922,23 +1032,74 @@ const liveTab = (() => {
         clearInterval(id);
         baselineRun=null; collecting=false;
         const ended=Date.now();
-        baselineEvidence=Object.fromEntries(expected.map(f=>[f,{...validation.baselineQuality(samples[f],started,ended),deviceId:bluetooth.foot(f).deviceId,samples:samples[f]}]));
-        const errors=expected.flatMap(f=>baselineEvidence[f].reasons.map(reason=>`${FOOT_LABEL[f]} ${reason}`));
-        if(expected.some(f=>!bluetooth.foot(f).isLive() || identities[f]!==bluetooth.foot(f).deviceId) || bluetooth.liveFeet().some(f=>!expected.includes(f))) errors.push('측정 중 연결 변경: 다시 측정하세요');
-        if(errors.length){
-          status.textContent=errors.join(' · ');
-          measure.disabled=false; back.disabled=false;conditions.disable(false);baselineEvidence=null;
+        const gateOpts={maxSpread:spreadLimit()};
+        baselineEvidence=Object.fromEntries(expected.map(f=>[f,{...validation.baselineQuality(samples[f],started,ended,gateOpts),deviceId:bluetooth.foot(f).deviceId,samples:samples[f]}]));
+
+        /* 측정값 표시가 먼저다. 게이트 결과와 무관하게 항상 보인다. */
+        expected.forEach(f=>readout.append(validation.baselineReadout(baselineEvidence[f], f)));
+
+        const linkChanged = expected.some(f=>!bluetooth.foot(f).isLive() || identities[f]!==bluetooth.foot(f).deviceId)
+          || bluetooth.liveFeet().some(f=>!expected.includes(f));
+        const blocking = expected.flatMap(f=>baselineEvidence[f].blocking.map(r=>`${FOOT_LABEL[f]} ${r}`));
+        if (linkChanged) blocking.push('측정 중 연결 변경: 다시 측정하세요');
+        const advisory = expected.flatMap(f=>baselineEvidence[f].advisory.map(r=>`${FOOT_LABEL[f]} ${r}`));
+
+        const trialIds = recordTrials(expected, blocking.length ? 'blocked' : advisory.length ? 'advisory' : 'pass');
+        status.textContent = `측정 완료 · 시도 기록 ${store.getBaselineTrials().length}건 누적`;
+        refreshTrialCard();
+
+        if (blocking.length) {
+          gate.append(validation.node('div','gate-blocking', blocking.join(' · ')));
+          gate.append(validation.node('small','','수신 자체가 부실해 기준값을 신뢰할 수 없습니다. 위 숫자는 기록에 남았습니다.'));
+          baselineEvidence=null;
+          measure.disabled=false; back.disabled=false; conditions.disable(false);
+          measure.textContent='다시 측정';
           return;
         }
-        expected.forEach(f=>{currentBaseline[f]=baselineEvidence[f].baseline;});
-        currentContext={...currentContext,conditionId:validation.id(),measuredAt:new Date().toISOString()};
-        session.stopFreeCapture();
-        status.textContent=expected.map(f=>`${FOOT_LABEL[f]} ${currentBaseline[f].join(' / ')} · ${baselineEvidence[f].count}개 수신 · 흔들림 ${baselineEvidence[f].spread.join('/')} · 남은 범위 ${baselineEvidence[f].headroom.join('/')}${baselineEvidence[f].warnings.length?` · ${baselineEvidence[f].warnings.join(' · ')}`:''}`).join('\n');
-        status.append(validation.node('small','','신호 검증 통과 · 의료 정확도를 뜻하지 않습니다. 기준값과 남은 범위를 확인하세요.'));
-        measure.textContent='측정 확인 · 캡처 화면으로'; measure.disabled=false;back.disabled=false;
-        measure.onclick=()=>kind==='motion'?renderCapture(channels,currentBaseline):renderFreeCapture(channels,currentBaseline);
+
+        if (advisory.length) {
+          gate.append(validation.node('div','gate-advisory', advisory.join(' · ')));
+          gate.append(validation.node('small','',`신발을 신으면 센서가 눌린 채로 시작해 이 폭을 넘기 쉽습니다. 지금 적용된 한계는 ${spreadLimit()}이며, 개발 도구에서 착용 상태별로 바꿉니다. 사유를 남기고 진행하거나 다시 측정하세요.`));
+          const noteInput=validation.node('input','form-input');
+          noteInput.type='text'; noteInput.maxLength=200; noteInput.placeholder='진행 사유 (예: 신발 착용, 자세 유지 한계)';
+          gate.append(noteInput);
+          const row=validation.node('div','live-actions'); row.style.gridTemplateColumns='1fr 1fr';
+          const again=validation.node('button','btn btn-ghost','다시 측정');
+          again.onclick=()=>{gate.innerHTML='';readout.innerHTML='';baselineEvidence=null;measure.disabled=false;measure.onclick();};
+          const go=validation.node('button','btn','사유 기록하고 계속');
+          go.onclick=()=>{
+            const note=noteInput.value.trim();
+            if(!note){app.showToast('진행 사유를 한 줄 남겨주세요.');noteInput.focus();return;}
+            accept(expected, trialIds, note);
+          };
+          row.append(again, go); gate.append(row);
+          measure.disabled=true; back.disabled=false; conditions.disable(false);
+          return;
+        }
+
+        conditions.disable(true);
+        accept(expected, trialIds, '');
       },BASELINE_SAMPLE_MS);
     };
+  }
+
+  /* 수집한 시도 기록을 파일로 빼는 카드. 신발 착용 한계값은 이 파일에
+     모인 흔들림 분포를 보고 정한다. */
+  function buildTrialExportCard() {
+    const card=validation.node('div','card card-sm');
+    const count=store.getBaselineTrials().length;
+    card.append(validation.node('div','form-label',`BASELINE 시도 기록 · ${count}건`));
+    card.append(validation.node('small','','통과·미통과를 모두 남깁니다. 신발 착용 한계값을 정하는 입력 자료입니다.'));
+    const row=validation.node('div','live-actions'); row.style.gridTemplateColumns='1fr 1fr';
+    const out=validation.node('button','btn btn-ghost','기록 내보내기');
+    out.disabled=!count;
+    out.onclick=()=>validation.download({format:'onyx-sdi-baseline-trials',exportedAt:new Date().toISOString(),
+      buildVersion:BUILD_VERSION,trials:store.getBaselineTrials()},'onyx-baseline-trials.json');
+    const clr=validation.node('button','btn btn-ghost','기록 비우기');
+    clr.disabled=!count;
+    clr.onclick=()=>{if(confirm(`시도 기록 ${count}건을 지웁니다. 내보내기를 먼저 했는지 확인하세요.`)){store.clearBaselineTrials();app.showToast('시도 기록을 비웠습니다.');}};
+    row.append(out,clr); card.append(row);
+    return card;
   }
 
   function renderCapture(channels = DEFAULT_CAPTURE_CHANNELS, baseline = null) {
@@ -1984,9 +2145,12 @@ const liveTab = (() => {
   }
 
   /* ── Render ready (preparation) state ──────────────────── */
-  function renderReady(drill) {
+  function renderReady(drill, baseline = null) {
     mode = 'ready';
     currentDrill = drill;
+    currentChannels = [...(drill.channels || DEFAULT_CAPTURE_CHANNELS)];
+    if (baseline) sessionBaseline = validation.copy(baseline);
+    currentBaseline = sessionBaseline || { left:[0,0,0,0], right:[0,0,0,0] };
     panel.innerHTML = '';
 
     const hdr = document.createElement('div');
@@ -2005,8 +2169,32 @@ const liveTab = (() => {
 
     const readyBanner = document.createElement('div');
     readyBanner.className   = 'ready-banner';
-    readyBanner.textContent = '센서를 배치하고 준비가 되면 훈련을 시작하세요';
+    readyBanner.textContent = sessionBaseline
+      ? '센서를 배치하고 준비가 되면 훈련을 시작하세요'
+      : '판정 기준이 될 영점을 먼저 측정해야 합니다';
     panel.appendChild(readyBanner);
+
+    /* ── 영점 카드 ────────────────────────────────────────────
+       판정은 이 값을 뺀 뒤에 이루어진다. 숫자를 여기 띄우는 이유는
+       신발을 신은 채 잡은 영점인지 벗고 잡은 영점인지가 화면에서
+       바로 보여야 하기 때문이다. */
+    const baseCard = document.createElement('div');
+    baseCard.className = 'card card-sm';
+    baseCard.append(validation.node('div','form-label','BASELINE (영점)'));
+    if (sessionBaseline) {
+      FOOT_IDS.filter(f => baselineEvidence?.[f]).forEach(f => {
+        baseCard.append(validation.node('div','mono',
+          `${FOOT_LABEL[f]} ${sessionBaseline[f].join(' / ')}`));
+      });
+      baseCard.append(validation.summary(currentContext));
+    } else {
+      baseCard.append(validation.node('small','','아직 측정하지 않았습니다. 훈련 판정은 영점을 뺀 값으로 이루어집니다.'));
+    }
+    const baseBtn = validation.node('button','btn btn-ghost',
+      sessionBaseline ? 'BASELINE 다시 측정' : '① BASELINE 측정');
+    baseBtn.onclick = () => renderBaselineSetup('drill', drill.channels || DEFAULT_CAPTURE_CHANNELS, drill);
+    baseCard.append(baseBtn);
+    panel.appendChild(baseCard);
 
     // Placement card: both silhouettes + point list
     const card = document.createElement('div');
@@ -2073,11 +2261,20 @@ const liveTab = (() => {
 
     const btnStart = document.createElement('button');
     btnStart.className   = 'btn btn-ok';
-    btnStart.textContent = '▶ 훈련 시작';
+    btnStart.textContent = sessionBaseline ? '▶ 훈련 시작' : '영점 측정 후 시작';
+    btnStart.disabled    = !sessionBaseline;
     btnStart.onclick = () => {
+      if (!sessionBaseline) { app.showToast('BASELINE을 먼저 측정하세요.'); return; }
+      /* 영점을 잡은 그 유닛이 지금도 같은 유닛으로 붙어 있는지 본다.
+         다른 기기로 바뀌었거나 수신이 끊긴 뒤라면 그 영점은 이 발의
+         것이 아니다. */
+      if (!checkBaselineLinks()) {
+        app.showToast('연결이 바뀌었습니다. BASELINE을 다시 측정하세요.');
+        sessionBaseline = null; renderReady(drill); return;
+      }
       renderActive(drill);
       bindSessionCallbacks();
-      session.start(drill);
+      session.start(drill, sessionBaseline);
     };
 
     actions.appendChild(btnCancel);
@@ -2135,8 +2332,10 @@ const liveTab = (() => {
       // Capture modes have no drill; currentChannels is the explicit
       // physical CH1-CH4 -> anatomical point mapping.
       const idx   = currentDrill ? channelOf(currentDrill, pid) : currentChannels.indexOf(pid);
+      /* 게이지도 판정과 같은 단위여야 한다. 드릴 모드에서만 원시값을
+         그리면 THR 표식과 막대가 서로 다른 축에 놓인다. */
       const raw   = idx >= 0 ? (values[idx] ?? 0) : 0;
-      const val   = currentDrill ? raw : Math.max(0, raw - (currentBaseline[foot]?.[idx] || 0));
+      const val   = Math.max(0, raw - (currentBaseline[foot]?.[idx] || 0));
       const pct   = Math.round((val / MAX_SENSOR_VAL) * 100);
       const aType = alertMap.get(pid);
 
@@ -2348,7 +2547,10 @@ const liveTab = (() => {
     const saved = [];
     FOOT_IDS.forEach(foot => {
       if (!bluetooth.foot(foot).isLive() || !session.hasFoot(foot)) return;
-      const values = session.currentValues(foot);
+      /* 기준값도 판정과 같은 단위라야 한다. 원시값을 저장하면
+         percent 모드의 THR이 장착 압력만큼 부풀어 실제 동작으로는
+         닿을 수 없는 값이 된다. */
+      const values = pressureEngine.deltaValues(session.currentValues(foot), currentBaseline[foot]);
       drill.points.forEach(pt => {
         const idx = channelOf(drill.points, pt.id);
         if (!pt.reference || typeof pt.reference === 'number') {
@@ -2459,10 +2661,10 @@ const liveTab = (() => {
     startMotionCapture() { renderCapturePlacement('motion'); },
     prepareSession(drill) { renderReady(drill); },
 
+    /* 영점 없이 세션을 시작하는 경로는 남겨두지 않는다. 호출부가
+       하나 빠지면 그 드릴만 조용히 옛 동작으로 돌아간다. */
     startSession(drill) {
-      renderActive(drill);
-      bindSessionCallbacks();
-      session.start(drill);
+      renderReady(drill);
     },
   };
 })();

@@ -183,5 +183,7 @@ const BASELINE_DURATION_MS = 3000;          // 장착 압력 영점: 3초 중앙
 const BASELINE_SAMPLE_MS   = 100;
 
 const MAX_SENSOR_VAL  = 1023;
-const GAIT_ACTIVE_THR = 80;   // raw value above which a point is considered "active" in gait check
+/* Load above the foot's own baseline at which a gait point counts as
+   "active". Delta counts, not raw ADC — see alert.js UNITS. */
+const GAIT_ACTIVE_THR = 80;
 const REQUIRED_POINTS = 4;    // drills always use exactly 4 active points

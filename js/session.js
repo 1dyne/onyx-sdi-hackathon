@@ -10,8 +10,15 @@
      - a foot that joins late is folded in from that moment, and
      - a foot that drops keeps the statistics it accumulated.
 
-   The drill definition and its thresholds are shared; only the
-   calibration reference is per foot.
+   The drill definition is shared. Everything that gets compared
+   against a measurement is per foot: the calibration reference, the
+   absolute threshold, and the baseline.
+
+   ── BASELINE (v2.1) ─────────────────────────────────────────
+   A drill session carries a per-foot zero measured just before it
+   starts, and judgement runs on `sample - baseline`. Raw counts are
+   still what gets recorded, so any stored session can be re-judged
+   later against a different baseline or different thresholds.
    ───────────────────────────────────────────────────────────── */
 const session = (() => {
 
@@ -51,6 +58,9 @@ const session = (() => {
   const state = {
     active:        false,
     freeCapture:   false,
+    /* Per-foot zero for the active drill. Measured on the BASELINE
+       screen and handed to start(). Never inferred from the stream. */
+    baseline:      { left: [0,0,0,0], right: [0,0,0,0] },
     capturing:     false,   // 동작 캡처 — 판정 없이 원시만
     recordRaw:     true,
     drill:         null,
@@ -193,7 +203,12 @@ const session = (() => {
     },
 
     /* ── Lifecycle ──────────────────────────────────────────── */
-    start(drill) {
+    /* `baseline` is { left:[4], right:[4] } from the BASELINE screen.
+       It is required: judging a shoe-worn foot against raw counts is
+       what produced the constant false alarms before v2.1. Callers
+       that somehow have none get a zero baseline, which reproduces the
+       old behaviour rather than crashing mid-measurement. */
+    start(drill, baseline = null) {
       // Unlock AudioContext on this user gesture (session start tap)
       audio.init();
 
@@ -201,6 +216,10 @@ const session = (() => {
         active:      true,
         freeCapture: false,
         recordRaw:   store.getSettings().recordRaw !== false,
+        baseline:    {
+          left:  (baseline?.left  || [0,0,0,0]).slice(0,4),
+          right: (baseline?.right || [0,0,0,0]).slice(0,4),
+        },
         drill,
         sessionId:   store.newSessionId(),
         startTime:   Date.now(),
@@ -397,13 +416,16 @@ const session = (() => {
 
       fs.totalSamples++;
 
-      // FSR alert check (only indices 0-3), judged against this foot.
-      const fsrValues = [...values.slice(0, 4), 0, 0, 0];
+      /* 판정은 영점을 뺀 값으로만 한다. 신발을 신으면 센서가 이미
+         700~800에서 시작하므로 원시값을 그대로 임계값과 비교하면
+         positive는 영원히 도달하지 못하고 negative는 항상 넘는다. */
+      const deltas = pressureEngine.deltaValues(values, state.baseline[foot]);
+      const fsrValues = [...deltas, 0, 0, 0];
       const { alerts, accuracy } = alertEngine.check(state.drill, fsrValues, foot);
 
       // Gait check — this foot's own checker instance.
       if (fs.gaitChecker) {
-        const { gaitError } = fs.gaitChecker.check(values);
+        const { gaitError } = fs.gaitChecker.check(fsrValues);
         if (gaitError) alerts.push({ pointId: 'GAIT', type: 'gait', value: 0, thr: 0, foot });
       }
 
@@ -422,8 +444,9 @@ const session = (() => {
         const idx  = channelOf(state.drill.points, pt.id);
         const stat = fs.pointStats[pt.id];
         if (stat) {
-          stat.sum += values[idx];
-          if (values[idx] > stat.max) stat.max = values[idx];
+          const v = deltas[idx] ?? 0;
+          stat.sum += v;
+          if (v > stat.max) stat.max = v;
           stat.count++;
         }
       }
@@ -529,7 +552,12 @@ const session = (() => {
       mergedTimeline.sort((a, b) => a.time - b.time);
 
       const log = {
-        schema:        3,
+        schema:        4,
+        /* v4: pointStats/alertTimeline are in baseline-subtracted
+           counts. `raw` below is still raw ADC, and `baseline` is what
+           was subtracted, so a v4 log can be re-judged from scratch. */
+        units:         'delta',
+        baseline:      { left: state.baseline.left, right: state.baseline.right },
         sessionId:     state.sessionId,
         drillId:       state.drill.id,
         drillTitle:    state.drill.title,

@@ -1466,3 +1466,29 @@ input[type=range] {
 .btn-ref,.ref-banner {color:var(--color-alert-n);border-color:var(--color-alert-n);background:var(--bg-card);}
 .pp-id-text {fill:var(--text-dim);}
 @media(max-width:370px){.app-header{padding:0 8px;}.header-right{gap:4px;}.app-subtitle{font-size:7px;}.app-logo{font-size:16px;}.validation-form{padding:12px;}}
+
+/* ── BASELINE 계측 표시 ─────────────────────────────────────
+   게이트 통과 여부와 무관하게 항상 뜬다. 한계를 넘은 흔들림 칸만
+   색으로 짚어주고, 통과/미통과 자체를 색으로 말하지는 않는다 —
+   신발을 신으면 넘는 것이 정상에 가깝기 때문이다. */
+.baseline-readouts { display:flex;flex-direction:column;gap:var(--gap-sm);margin:var(--gap-sm) 0; }
+.baseline-readout { background:var(--bg-card);border:1px solid var(--border);padding:var(--gap-sm); }
+.baseline-readout strong { display:block;font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:6px; }
+.baseline-readout small { display:block;margin-top:6px;font-size:10px;color:var(--text-muted);line-height:1.5; }
+.baseline-table { width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:12px; }
+.baseline-table th { font-weight:400;font-size:9px;color:var(--text-muted);text-align:right;padding:2px 4px;letter-spacing:.06em; }
+.baseline-table th:first-child { text-align:left; }
+.baseline-table td { text-align:right;padding:3px 4px;border-top:1px solid var(--border); }
+.baseline-table td:first-child { text-align:left;color:var(--text-muted); }
+.baseline-table td[data-over="1"] { color:var(--color-alert-n);font-weight:600; }
+
+.baseline-gate { display:flex;flex-direction:column;gap:var(--gap-sm);margin-bottom:var(--gap-sm); }
+.baseline-gate small { font-size:11px;line-height:1.6;color:var(--text-muted); }
+.gate-blocking,.gate-advisory { padding:8px;border-left:3px solid;font-size:12px;line-height:1.5; }
+.gate-blocking { border-color:var(--color-alert-p);background:var(--bg-input); }
+.gate-advisory { border-color:var(--color-alert-n);background:var(--bg-input); }
+
+/* 좌우 THR을 따로 잡을 때 어느 쪽 슬라이더인지 표시 */
+.slider-tag { font-family:var(--font-mono);font-size:10px;color:var(--text-muted);width:34px; }
+.thr-link { flex-direction:row;align-items:center;gap:8px;margin-bottom:6px; }
+.thr-link .form-label { margin:0; }
