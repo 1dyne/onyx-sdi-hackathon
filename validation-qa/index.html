@@ -1,0 +1,155 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Local validation QA</title></head><body>
+<button id="run">Run registration checks</button><pre id="result">Ready</pre>
+<iframe id="appframe" src="../index.html?nosw=1" style="width:360px;height:850px;border:0"></iframe>
+<script>
+const frame=document.getElementById('appframe'), output=document.getElementById('result');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+function assert(value,message){if(!value)throw Error(message);output.textContent+='\nPASS '+message;}
+document.getElementById('run').onclick=async()=>{
+ let timer;
+ try{
+  output.textContent='Running';const w=frame.contentWindow,d=w.document;
+  const {store,session,bluetooth,liveTab,validation}=w.eval('({store,session,bluetooth,liveTab,validation})');
+  // This QA origin holds synthetic data only. Never target the deployed origin.
+  store.resetExperimentRecords();await validation.pending('delete');
+  w.confirm=()=>true;
+  const normalize=s=>s.trim().replace(/\s+/g,' ');
+  const click=text=>{const b=Array.from(d.querySelectorAll('button')).find(b=>normalize(b.textContent)===normalize(text));assert(!!b,'button '+text);b.click();};
+  click('CONFIG');assert(!d.getElementById('tab-config').textContent.includes('앱 / 캐시'),'developer controls removed from Config');
+  click('🛠 개발 도구');assert(d.getElementById('tab-developer').textContent.includes('앱 / 캐시'),'developer page contains cache controls');
+  click('← 대시보드');
+  for(const f of ['left','right']){
+   const link=bluetooth.foot(f);link.isLive=()=>true;link.isSimulating=()=>true;link.deviceId='qa-'+f;link.deviceName='QA';link.sampleRate=()=>10;
+  }
+  let values=[100,120,140,160,0,0,0];
+  timer=setInterval(()=>{for(const f of ['left','right']){liveTab.observeSample(values,f);session.feed(values,f);}},100);
+  click('🎬 MOTION CAPTURE (연속 기록)');click('보행');click('다음 — BASELINE');
+  assert(d.querySelector('[data-field="footwear"]').value==='none','center defaults to no shoes');
+  d.querySelector('[data-field="task"]').value='supportL';
+  d.querySelector('[data-field="support"]').value='balance';
+  click('3초 BASELINE 측정');await delay(3300);
+  assert(d.querySelector('.baseline-gate').textContent.includes('신호 검증 통과'),'fresh stable baseline passes');
+  assert(d.querySelector('.baseline-table'),'measured numbers are always shown');
+  click('측정 확인 · 캡처 화면으로');
+  click('● REC');await delay(3400);
+  assert(session.isActive,'recording started');
+  click('CONFIG');assert(d.getElementById('tab-live').classList.contains('active'),'navigation blocked during recording');
+  values=[250,180,300,600,1,2,3];
+  d.querySelector('[aria-label="구간 종류"]').value='보조 변경';
+  d.querySelector('input[placeholder^="구간 메모"]').value='손 지지 줄임';click('구간 표시');
+  await delay(5500);
+  const pending=await validation.pending('get');assert(pending?.left.length>0,'checkpoint contains raw samples');
+  assert(pending.context.task==='supportL','checkpoint preserves task context');
+  click('■ STOP');await delay(350);
+  const cap=store.getCaptures()[0];assert(cap.context.task==='supportL','final capture preserves task');
+  assert(cap.baseline.left[0]===100,'baseline preserved');assert(cap.markers[0].note==='손 지지 줄임','typed marker preserved');
+  assert(cap.left[0][1]===100,'raw capture not baseline-subtracted');
+  assert(!await validation.pending('get'),'successful save clears checkpoint');
+  d.querySelector('.cap-take').click();
+  assert(d.querySelector('.validation-summary').textContent.includes('왼발 축 지지'),'detail renders metadata');
+  assert(!d.querySelector('.step-analysis'),'nonwalking task has no gait analysis card');
+  click('동작 등록 →');assert(d.getElementById('tab-config').classList.contains('active'),'registration opens config');
+  click('참고 동작 등록 완료');const drill=store.getDrills()[0];
+  assert(drill.source.captureId===cap.captureId,'registered drill links original capture');
+  assert(drill.source.samples.left.length>0,'selected raw segment retained');
+  assert(drill.context.support==='balance','registration preserves assistance');
+  assert(drill.referenceReviewRequired,'registration not auto-approved as training target');
+  click('TRAINING');d.querySelector('#tab-training .drill-card').click();assert(!session.isActive,'reference-only record does not start training');
+  click('LIVE');click('📸 FREE CAPTURE 시작');click('보행');click('다음 — BASELINE');
+  values=[100,120,140,160,0,0,0];click('3초 BASELINE 측정');await delay(3300);click('측정 확인 · 캡처 화면으로');
+  values=[200,300,400,500,1,2,3];await delay(200);click('📸  캡처');
+  click('참고 동작 등록 완료');assert(store.getDrills().length===2,'Free Capture registration works');
+  click('LIVE');click('🎬 MOTION CAPTURE (연속 기록)');click('보행');click('다음 — BASELINE');
+  let jitter=0;const jit=setInterval(()=>{jitter=(jitter+1)%2;values=[760+jitter*90,770,780,790,0,0,0];},100);
+  click('3초 BASELINE 측정');await delay(3300);clearInterval(jit);
+  assert(d.querySelector('.baseline-table'),'a failed gate still shows the measured numbers');
+  assert(d.querySelector('.gate-advisory'),'a shaky baseline is advisory');
+  assert(!d.querySelector('.gate-blocking'),'a shaky baseline does not block');
+  assert(store.getBaselineTrials().length>0,'every attempt is recorded');
+  click('사유 기록하고 계속');assert(d.querySelector('.gate-advisory'),'continuing needs a reason');
+  d.querySelector('.baseline-gate input[type=text]').value='신발 착용';
+  click('사유 기록하고 계속');
+  assert(store.getBaselineTrials().some(t=>t.outcome==='accepted'&&t.note==='신발 착용'),'the reason is stored with the attempt');
+  assert(d.querySelector('.baseline-gate').textContent.includes('신발 착용'),'the reason is shown back');
+  click('← 배치 수정');click('← 취소');
+
+  // 한계값은 착용 상태별 설정에서 온다. 같은 측정이 한계만 바꿔서 통과해야 한다.
+  store.saveSettings({spreadLimitNone:300});
+  click('🎬 MOTION CAPTURE (연속 기록)');click('보행');click('다음 — BASELINE');
+  const jit2=setInterval(()=>{jitter=(jitter+1)%2;values=[760+jitter*95,770+jitter*40,780,790,0,0,0];},100);
+  click('3초 BASELINE 측정');await delay(3300);clearInterval(jit2);
+  assert(!d.querySelector('.gate-advisory'),'a raised limit accepts the same shaky baseline');
+  assert(d.querySelector('.baseline-gate').textContent.includes('신호 검증 통과'),'and reports it as a pass');
+  assert(store.getBaselineTrials().at(-1).maxSpreadApplied===300,'the applied limit is stored on the attempt');
+  store.saveSettings({spreadLimitNone:35});
+  click('← 배치 수정');click('← 취소');
+
+  click('🎬 MOTION CAPTURE (연속 기록)');click('보행');click('다음 — BASELINE');
+  click('3초 BASELINE 측정');clearInterval(timer);await delay(3300);
+  assert(d.querySelector('.gate-blocking').textContent.includes('수신 부족'),'stale baseline is rejected');
+  assert(!d.querySelector('.baseline-gate').textContent.includes('신호 검증 통과'),'no false baseline success');
+  assert(!d.querySelector('.baseline-gate input[type=text]'),'a delivery failure cannot be overridden');
+  click('← 배치 수정');click('← 취소');
+  const root=d.documentElement;d.getElementById('btn-theme').click();assert(root.dataset.theme==='dark','dark mode works');
+  assert(!d.documentElement.scrollWidth||d.documentElement.scrollWidth<=360,'no horizontal overflow at 360px');
+  assert(w.getComputedStyle(root).getPropertyValue('--heat-5').trim()==='#ce7d7e','dark heatmap palette');
+  await validation.pending('put',{...pending,captureId:'qa-interrupted'});
+  click('🛠 개발 도구');await delay(150);
+  assert(d.getElementById('tab-developer').textContent.includes('BASELINE 흔들림 한계'),'the limit control lives in developer tools');
+  d.querySelector('#tab-developer input[type=number]').value='70';
+  click('한계값 저장');assert(store.getSettings().spreadLimitNone===70,'the limit is saved');
+  store.saveSettings({spreadLimitNone:35});
+  click('캡처 목록으로 복구');await delay(150);
+  assert(store.getCapture('qa-interrupted').interrupted,'interrupted capture recovered');
+  assert(!await validation.pending('get'),'recovery removes pending copy');
+  await validation.pending('put',pending);click('← 대시보드');click('🛠 개발 도구');await delay(150);click('캡처 목록으로 복구');await delay(150);
+  assert(store.getCapture(cap.captureId).duration===cap.duration,'short checkpoint cannot overwrite complete take');
+  assert(d.getElementById('tab-developer').textContent.includes('더 긴 기록'),'duplicate recovery explains preserved take');
+  /* ── 훈련 판정 ─────────────────────────────────────────────
+     신발을 신은 유닛은 아무것도 밟지 않아도 780에서 시작한다. 판정이
+     영점을 빼지 않던 시절에는 이 상태에서 positive 압점이 영원히
+     충족되고 negative 압점이 매 샘플 경보를 냈다. 여기서 보는 것은
+     그 반대다 — 영점을 빼면 무부하는 delta 0이라 positive가 걸리고
+     negative는 조용하다. */
+  store.saveDrill({id:'d-train',title:'QA 훈련',type:'static',showPlacementAlert:false,
+    channels:['P6','P3','P2','P1'],points:[
+      {id:'P6',channel:0,direction:'positive',thr:{left:100,right:100},thrMode:'absolute',thrPercent:80,reference:{left:null,right:null}},
+      {id:'P3',channel:1,direction:'negative',thr:{left:200,right:200},thrMode:'absolute',thrPercent:80,reference:{left:null,right:null}}]});
+  values=[780,780,780,780,0,0,0];
+  timer=setInterval(()=>{for(const f of ['left','right']){liveTab.observeSample(values,f);session.feed(values,f);}},100);
+  click('TRAINING');
+  const trainCard=Array.from(d.querySelectorAll('#tab-training .drill-card')).find(c=>c.textContent.includes('QA 훈련'));
+  assert(!!trainCard,'the drill reaches the training list');trainCard.click();await delay(150);
+  const startBtn=Array.from(d.querySelectorAll('#tab-live button')).find(b=>normalize(b.textContent)==='영점 측정 후 시작');
+  assert(startBtn&&startBtn.disabled,'training cannot start before a baseline');
+  click('① BASELINE 측정');click('3초 BASELINE 측정');await delay(3300);
+  assert(d.querySelector('.baseline-gate').textContent.includes('신호 검증 통과'),'a steady shoe baseline passes');
+  click('영점 확인 · 훈련 화면으로');
+  click('▶ 훈련 시작');await delay(250);
+  assert(session.isActive,'training starts once the baseline is taken');
+  const resting=Array.from(session.foot('left').activeAlerts,a=>a.pointId);
+  assert(resting.includes('P6'),'an unloaded point is judged unmet, not met');
+  assert(!resting.includes('P3'),'shoe pre-load alone must not breach a negative point');
+  values=[930,830,780,780,0,0,0];await delay(350);
+  assert(session.foot('left').activeAlerts.length===0,'loading past both thresholds clears the alerts');
+  click('◎ REF SAVE');
+  const ref=store.getDrill('d-train').points[0].reference;
+  assert(ref.left===150&&ref.right===150,'REF SAVE stores the delta, not the raw count');
+  values=[930,1030,780,780,0,0,0];await delay(350);
+  assert(Array.from(session.foot('left').activeAlerts,a=>a.pointId).includes('P3'),'a real overload still fires');
+  click('END SESSION');await delay(200);
+  const trained=store.getSession(store.getSessions().at(-1).sessionId);
+  assert(trained.units==='delta','the log states its units');
+  assert(trained.baseline.left[0]===780,'the log keeps the baseline it judged against');
+  assert(trained.raw.left[0][1]===780,'raw counts are still recorded unchanged');
+  clearInterval(timer);
+  click('LIVE');
+
+  const previousSettings=JSON.stringify(store.getSettings());click('전체 기록 JSON 백업');click('백업 후 실험 기록 초기화');await delay(100);
+  assert(!store.getDrills().length&&!store.getCaptures().length,'explicit reset clears only experimental records');
+  assert(JSON.stringify(store.getSettings())===previousSettings,'reset preserves settings');
+  output.textContent+='\nALL CHECKS PASSED';
+ }catch(e){output.textContent+='\nFAIL '+e.stack;}
+ finally{clearInterval(timer);}
+};
+</script></body></html>

@@ -1,0 +1,1 @@
+{"name":"onyx-local-qa","private":true,"scripts":{"test":"node run.cjs"},"dependencies":{"jsdom":"^26.1.0","fake-indexeddb":"^6.0.0"}}
