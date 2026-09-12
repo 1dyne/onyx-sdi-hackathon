@@ -1,5 +1,11 @@
-# 로컬 전용 레퍼런스 파일 (배포 불필요)
-references/
+# 로컬 전용 레퍼런스 파일 (배포 불필요).
+# 앞의 / 가 있어야 이 폴더의 references/ 만 걸린다. 없으면 어느 깊이의
+# references/ 든 걸려서 firmware/references 까지 조용히 빠진다.
+/references/
+
+# 의존성. firmware/ 와 validation-qa/ 는 무엇을 왜 빼는지 각자 폴더의
+# .gitignore 에 적어둔다.
+node_modules/
 
 # OS
 .DS_Store
